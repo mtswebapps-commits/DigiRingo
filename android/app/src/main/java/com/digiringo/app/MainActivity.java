@@ -1,18 +1,24 @@
 package com.digiringo.app;
 
+import android.Manifest;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
+import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends BridgeActivity {
 
@@ -29,7 +35,27 @@ public class MainActivity extends BridgeActivity {
         try {
             getBridge().getWebView().addJavascriptInterface(new NativeBridge(), "DigiNative");
         } catch (Exception ignored) { }
+        // Ask for the softphone's runtime permissions UP FRONT (first launch), so the
+        // mic prompt never appears mid-call — a prompt at answer time used to block
+        // the WebRTC getUserMedia and the call would never connect.
+        requestCallPermissions();
         handleCallIntent(getIntent());
+    }
+
+    /** Request microphone (+ notifications on Android 13+) once, at startup, so the
+     *  user grants them before their first call instead of during it. */
+    private void requestCallPermissions() {
+        List<String> need = new ArrayList<>();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            need.add(Manifest.permission.RECORD_AUDIO);
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && ContextCompat.checkSelfPermission(this, "android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+            need.add("android.permission.POST_NOTIFICATIONS");
+        }
+        if (!need.isEmpty()) {
+            ActivityCompat.requestPermissions(this, need.toArray(new String[0]), 7);
+        }
     }
 
     @Override

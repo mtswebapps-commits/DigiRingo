@@ -418,11 +418,28 @@ export function answerCall() {
   nativeCallActive = false;
   pendingNative = null;
   try {
-    if (live && call) call.answer();
+    if (live && call) {
+      call.answer();
+      // Tell the server we took the call so it can immediately stop the ring on
+      // this account's OTHER devices (browser tabs / other phones).
+      notifyAnswered();
+    }
     else if (!live && snap?.phase === "incoming") emit({ phase: "active", startedAt: Date.now() });
   } catch (e) {
     emit({ phase: "failed", error: e instanceof Error ? e.message : "Could not answer the call" });
   }
+}
+
+/** Fire-and-forget: let the backend fan a "stop ringing" push to our other devices. */
+function notifyAnswered() {
+  if (!live) return;
+  try {
+    const t = getToken();
+    void fetch(`${API_ORIGIN_BASE}/api/voice/answered`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) },
+    });
+  } catch { /* best-effort */ }
 }
 
 export function hangupCall() {
@@ -495,6 +512,20 @@ if (typeof window !== "undefined") {
         else { pendingNative = "answer"; pendingNativeAt = Date.now(); }
       }
     };
+}
+
+// The service worker relays a server "cancel" push (the call was answered on
+// another device, or the caller hung up) as a postMessage. Clear THIS client's
+// ring — but only if it's still ringing; never tear down a call this device
+// actually answered (that one is "active", left untouched).
+if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    if ((e.data as { type?: string })?.type !== "dg-call-cancel") return;
+    if (snap && (snap.phase === "incoming" || snap.phase === "ringing")) {
+      clearNativeCallNotification();
+      hangupCall();
+    }
+  });
 }
 
 // Dev-only: preview the incoming-call UI in mock mode (window.__dgIncoming()).

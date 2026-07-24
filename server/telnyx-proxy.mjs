@@ -1656,6 +1656,17 @@ createServer(async (req, res) => {
       return send(res, 200, await voiceRemaining(uid));
     } catch (e) { return send(res, 500, { error: e.message }); }
   }
+  // One device answered an inbound call → immediately tell the user's OTHER
+  // devices to stop ringing (don't wait for the call to end). The answering
+  // device already cleared its own ring locally, so a redundant cancel to it is
+  // harmless (its call is "active", not "incoming").
+  if (req.url?.startsWith("/api/voice/answered") && req.method === "POST") {
+    if (!db) return send(res, 503, { error: "Database not configured" });
+    const uid = db.verifyToken(bearer(req));
+    if (!uid) return send(res, 401, { error: "Not authenticated" });
+    notifyCancelCall(uid).catch(() => {});
+    return send(res, 200, { ok: true });
+  }
 
   // 3e) Call history — persisted per-user so Recents survive a refresh (WebRTC
   //     calls aren't reliably in Telnyx CDRs). GET lists; POST logs one call.

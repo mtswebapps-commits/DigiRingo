@@ -38,6 +38,10 @@ self.addEventListener("push", (event) => {
     event.waitUntil((async () => {
       const ns = await self.registration.getNotifications({ tag: "dg-incoming-call" });
       ns.forEach((n) => n.close());
+      // Also tell any OPEN app tab to drop its in-app ringing UI — closing the OS
+      // notification alone doesn't clear the React call screen in a foreground tab.
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      clients.forEach((c) => c.postMessage({ type: "dg-call-cancel" }));
     })());
     return;
   }
