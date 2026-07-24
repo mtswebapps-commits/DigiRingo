@@ -910,6 +910,19 @@ export async function applyUsage(uid, { minutes = 0, sms = 0 } = {}) {
   return { hasPlan: true, nearLimit, overLimit, walletShort, cost };
 }
 
+/** PRE-SEND gate: can this account afford to send one SMS right now? True if the
+ *  plan's SMS pool still has room, or the wallet (or a saved card that can
+ *  auto-reload) can cover the overflow rate. Without this a $0 account with an
+ *  exhausted plan could send unlimited SMS that the platform pays Telnyx for. */
+export async function canSendSms(uid) {
+  const sub = await getActiveSubRow(uid);
+  if (sub && Number(sub.sms_used) < Number(sub.sms_included)) return true;
+  const [u] = await pool.query("SELECT wallet_balance FROM users WHERE id = ?", [uid]);
+  if (Number(u[0]?.wallet_balance ?? 0) >= OVERFLOW_RATES.sms) return true;
+  const card = await getBillingProfile(uid);
+  return !!(card && card.last4);
+}
+
 /**
  * How many more seconds of talk-time this account can AFFORD right now, pooled
  * across every concurrent call/profile: plan minutes left + wallet-funded
@@ -1427,7 +1440,7 @@ export async function adminKpis() {
   const [uRows] = await pool.query("SELECT COUNT(*) AS c FROM users");
   const [nRows] = await pool.query("SELECT COUNT(*) AS c FROM numbers WHERE status = 'active'");
   const [mRows] = await pool.query(
-    "SELECT COALESCE(SUM(CASE WHEN cycle = 'yearly' THEN renew_amount/12 ELSE renew_amount END),0) AS v FROM subscriptions WHERE status = 'active'"
+    "SELECT COALESCE(SUM(CASE WHEN cycle = 'annual' THEN renew_amount/12 ELSE renew_amount END),0) AS v FROM subscriptions WHERE status = 'active'"
   );
   const [sRows] = await pool.query("SELECT COUNT(*) AS c FROM messages WHERE created_at >= (NOW() - INTERVAL 7 DAY)");
   const [bRows] = await pool.query("SELECT COALESCE(SUM(wallet_balance),0) AS v FROM users");

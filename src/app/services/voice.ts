@@ -422,7 +422,7 @@ export function answerCall() {
       call.answer();
       // Tell the server we took the call so it can immediately stop the ring on
       // this account's OTHER devices (browser tabs / other phones).
-      notifyAnswered();
+      notifyCallHandled();
     }
     else if (!live && snap?.phase === "incoming") emit({ phase: "active", startedAt: Date.now() });
   } catch (e) {
@@ -430,8 +430,9 @@ export function answerCall() {
   }
 }
 
-/** Fire-and-forget: let the backend fan a "stop ringing" push to our other devices. */
-function notifyAnswered() {
+/** Fire-and-forget: let the backend fan a "stop ringing" push to our other devices
+ *  once this device has answered OR declined the inbound call. */
+function notifyCallHandled() {
   if (!live) return;
   try {
     const t = getToken();
@@ -446,8 +447,12 @@ export function hangupCall() {
   clearNativeCallNotification();
   nativeCallActive = false;
   pendingNative = null;
-  try { if (live && call) call.hangup(); } catch { /* ignore */ }
   const wasIncoming = snap?.phase === "incoming";
+  try { if (live && call) call.hangup(); } catch { /* ignore */ }
+  // Declining (or hanging up) an inbound call on this device dismisses it for the
+  // whole account — tell the server to stop the ring on our OTHER devices too, so
+  // a decline on the phone also clears a ringing browser tab.
+  if (live && wasIncoming) notifyCallHandled();
   endCall();
   if (snap && snap.phase !== "failed") emit({ phase: "ended", startedAt: wasIncoming ? null : snap.startedAt });
 }
@@ -496,9 +501,11 @@ if (typeof window !== "undefined") {
     (action, caller = "") => {
       if (action === "decline") {
         if (live && call) { hangupCall(); return; }
-        // No leg yet → remember the decline and drop any seeded UI.
+        // No leg yet → remember the decline and drop any seeded UI, and still tell
+        // the server so our other devices stop ringing.
         pendingNative = "decline"; pendingNativeAt = Date.now();
         clearNativeCallNotification();
+        notifyCallHandled();
         if (snap && snap.phase === "incoming") clearCall();
         return;
       }

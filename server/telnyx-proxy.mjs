@@ -889,6 +889,23 @@ async function conversationsPayload(uid) {
   return { data: out };
 }
 
+/* -------------------------------------------- simple auth rate limiter (in-mem) */
+// Per-IP sliding window so login/register/forgot/reset can't be brute-forced or
+// used to spam reset emails. In-memory is fine for a single-process server.
+const rlBuckets = new Map(); // key → { count, resetAt }
+function rateLimited(key, max, windowMs) {
+  const now = Date.now();
+  const b = rlBuckets.get(key);
+  if (!b || now > b.resetAt) { rlBuckets.set(key, { count: 1, resetAt: now + windowMs }); return false; }
+  b.count += 1;
+  return b.count > max;
+}
+function clientIp(req) {
+  const xff = req.headers["x-forwarded-for"];
+  if (xff) return String(xff).split(",")[0].trim();
+  return req.socket?.remoteAddress || "unknown";
+}
+
 /* --------------------------------------------------------------- webhook in */
 function handleWebhook(payload) {
   const ev = payload?.data ?? payload;
@@ -1398,6 +1415,13 @@ createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const data = body ? JSON.parse(body) : {};
+      // Throttle the unauthenticated, abusable auth endpoints: 10 attempts/min per
+      // IP stops password brute-force and reset-email spam.
+      if (req.method === "POST" && /^\/api\/auth\/(login|register|forgot|reset)/.test(req.url)) {
+        if (rateLimited(`auth:${clientIp(req)}`, 10, 60_000)) {
+          return send(res, 429, { error: "Too many attempts — please wait a minute and try again." });
+        }
+      }
       if (req.method === "POST" && req.url.startsWith("/api/auth/register")) {
         const result = await db.registerUser(data.email, data.password, data.name);
         // Email a verification link (best-effort — don't fail signup if mail is down).
@@ -1822,6 +1846,15 @@ createServer(async (req, res) => {
         return send(res, 403, { errors: [{ detail: "You can only send from a number you own." }] });
       }
     }
+  }
+
+  // Balance gate: block the send if the account can't afford it (plan SMS pool
+  // exhausted AND an empty wallet with no card on file). Without this a $0 account
+  // could send unlimited SMS that the platform pays Telnyx for. Fail-open on a DB
+  // blip so a transient error never blocks a paying user.
+  if (req.method === "POST" && path.startsWith("/messages") && tnUid && db) {
+    const affordable = await db.canSendSms(tnUid).catch(() => true);
+    if (!affordable) return send(res, 402, { errors: [{ detail: "Out of SMS credit — top up your wallet or upgrade your plan to send messages." }] });
   }
 
   // Lock down the raw Telnyx proxy for REGULAR users. Everything below reaches ONE

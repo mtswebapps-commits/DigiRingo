@@ -130,7 +130,15 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, user: a.user };
 
     case "LOGOUT":
-      return { ...s, user: null };
+      // Wipe ALL per-user data so the previous account's numbers / messages /
+      // wallet never linger for the next person on a shared device.
+      return {
+        ...s,
+        user: null, brand: null,
+        numbers: [], conversations: [], calls: [], activity: [],
+        wallet: { balance: 0, txns: [] }, subscription: null,
+        blocked: [], activeNumberId: null,
+      };
 
     case "SELECT_NUMBER":
       return { ...s, activeNumberId: a.id };
@@ -457,7 +465,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [mockLogin, applySub]);
 
-  const logout = useCallback(() => { loadedFor.current = null; clearToken(); dispatch({ t: "LOGOUT" }); }, []);
+  const logout = useCallback(() => {
+    // Reset the per-user refs too, or the next account inherits this one's
+    // "already seen" inbox state (its new SMS chimes would be suppressed) and
+    // usage alerts.
+    loadedFor.current = null;
+    seenInbound.current = new Set();
+    inboxSeeded.current = false;
+    usageAlerted.current = { near: false, over: false };
+    clearToken();
+    dispatch({ t: "LOGOUT" });
+  }, []);
   const setWallet = useCallback((balance: number, txns: WalletTxn[]) => dispatch({ t: "SET_WALLET", balance, txns }), []);
 
   // Re-fetch the current user from the server (e.g. to pick up email_verified
