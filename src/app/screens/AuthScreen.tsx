@@ -97,25 +97,28 @@ export function AuthScreen() {
             ))}
           </div>
 
-          {/* Fields */}
-          <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 12 }}>
-            {mode === "signup" && (
-              <Field icon={<UserIcon size={16} color={C.muted} />} placeholder="Full name" value={name} onChange={setName} />
-            )}
-            <Field icon={<Mail size={16} color={C.muted} />} placeholder="Email address" value={email} onChange={setEmail} type="email" />
-            <Field icon={<Lock size={16} color={C.muted} />} placeholder="Password" value={pw} onChange={setPw} type="password" />
-          </div>
-
-          {mode === "login" && (
-            <div style={{ textAlign: "right", marginTop: 10 }}>
-              <button onClick={() => { setForgot(true); setSent(false); }} style={{ background: "none", border: "none", color: C.blue, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font.sans }}>Forgot password?</button>
+          {/* Fields — wrapped in a real <form> with autocomplete so the browser /
+              Google password manager offers to SAVE and later AUTOFILL the login. */}
+          <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
+            <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+              {mode === "signup" && (
+                <Field icon={<UserIcon size={16} color={C.muted} />} placeholder="Full name" value={name} onChange={setName} name="name" autoComplete="name" />
+              )}
+              <Field icon={<Mail size={16} color={C.muted} />} placeholder="Email address" value={email} onChange={setEmail} type="email" name="email" autoComplete="email" />
+              <Field icon={<Lock size={16} color={C.muted} />} placeholder="Password" value={pw} onChange={setPw} type="password" name="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} />
             </div>
-          )}
 
-          <button onClick={submit} disabled={busy} style={{ ...primaryBtn(busy), marginTop: mode === "login" ? 16 : 24 }}>
-            {busy ? "Please wait…" : (mode === "signup" ? "Create account" : "Log in")}
-            {!busy && <ArrowRight size={17} />}
-          </button>
+            {mode === "login" && (
+              <div style={{ textAlign: "right", marginTop: 10 }}>
+                <button type="button" onClick={() => { setForgot(true); setSent(false); }} style={{ background: "none", border: "none", color: C.blue, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font.sans }}>Forgot password?</button>
+              </div>
+            )}
+
+            <button type="submit" disabled={busy} style={{ ...primaryBtn(busy), marginTop: mode === "login" ? 16 : 24 }}>
+              {busy ? "Please wait…" : (mode === "signup" ? "Create account" : "Log in")}
+              {!busy && <ArrowRight size={17} />}
+            </button>
+          </form>
 
           <p style={{ color: C.faint, fontSize: 11, textAlign: "center", marginTop: 18, lineHeight: 1.6 }}>
             By continuing you agree to DIGIRINGO's<br />Terms of Service and Privacy Policy.
@@ -138,16 +141,16 @@ const backBtn: CSSProperties = {
   cursor: "pointer", fontFamily: font.sans, marginTop: 18, display: "block", marginInline: "auto",
 };
 
-function Field({ icon, placeholder, value, onChange, type = "text" }: {
+function Field({ icon, placeholder, value, onChange, type = "text", name, autoComplete }: {
   icon: ReactNode; placeholder: string; value: string;
-  onChange: (v: string) => void; type?: string;
+  onChange: (v: string) => void; type?: string; name?: string; autoComplete?: string;
 }) {
   return (
     <div style={{ position: "relative" }}>
       <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }}>{icon}</span>
       <input
         value={value} onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder} type={type}
+        placeholder={placeholder} type={type} name={name} autoComplete={autoComplete}
         style={{
           width: "100%", padding: "14px 14px 14px 42px",
           background: C.input, border: `1px solid ${C.line}`, borderRadius: radius.md,

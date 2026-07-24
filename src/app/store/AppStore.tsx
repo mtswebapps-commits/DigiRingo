@@ -537,7 +537,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const { subscription } = await apiGetSubscription();
           applySub(toAppSub(subscription));
         } catch { /* subscription load is non-fatal */ }
-      } catch { clearToken(); /* expired/invalid token → stay logged out */ }
+      } catch (e) {
+        // Only a real auth failure (bad / expired token) should log the user out.
+        // A transient network blip on boot must NOT wipe a valid session — that was
+        // forcing a fresh login on every flaky-network launch.
+        if (!isNetworkError(e)) clearToken();
+      }
     })();
   }, [applySub]);
   const selectNumber = useCallback((id: string) => dispatch({ t: "SELECT_NUMBER", id }), []);
