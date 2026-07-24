@@ -213,11 +213,15 @@ function ensureClient(): Promise<void> {
       try {
         const { loginToken, login, password, callerNumber, callerName } = await fetchCreds();
         myCaller = callerNumber; myName = callerName;
+        // Tear down any previous client first — a reconnect that left the old one
+        // alive would double-register the telnyx.notification handler and ring the
+        // incoming UI twice for a single invite.
+        if (client) { try { client.disconnect(); } catch { /* ignore */ } client = null; }
         client = new TelnyxRTC(loginToken ? { login_token: loginToken } : { login: login!, password: password! });
         client.remoteElement = REMOTE_AUDIO_ID;
         client.on("telnyx.ready", () => { registered = true; clearTimeout(timeout); console.info("[voice] registered (ready for inbound + outbound)"); resolve(); });
         client.on("telnyx.notification", onNotification);
-        client.on("telnyx.socket.close", () => { console.warn("[voice] socket closed"); registered = false; });
+        client.on("telnyx.socket.close", () => { console.warn("[voice] socket closed"); registered = false; readyPromise = null; });
         client.on("telnyx.error", (e: unknown) => {
           const msg = (e as { error?: { message?: string } })?.error?.message || "Voice connection error";
           console.warn("[voice] error:", msg);
@@ -329,6 +333,10 @@ function endCall() {
   lastStats = null;
   call = null;
   nativeCallActive = false;
+  // Remote hangup / answered-on-another-device cancels this leg → make sure the
+  // native full-screen ring notification is dismissed too (answerCall/hangupCall
+  // do this on local action, but a remote terminal state must clear it as well).
+  clearNativeCallNotification();
 }
 
 /* -------------------------------------------------------------------- public */
@@ -394,13 +402,27 @@ export async function startCall(destination: string, callerNumber: string | null
 
 /** Answer the ringing inbound call. */
 export function answerCall() {
+  // Live inbound but the WebRTC INVITE hasn't landed yet — a notification / lock-
+  // screen Answer (or an eager tap on the seeded UI) can beat the SIP leg on a
+  // cold start. QUEUE the answer and let applyPendingNative() fire the moment the
+  // real leg arrives; also kick the client so the leg can reach us. Nulling
+  // pendingNative here (the old bug) left the call permanently unanswerable.
+  if (live && !call) {
+    if (snap?.phase === "incoming") {
+      pendingNative = "answer"; pendingNativeAt = Date.now();
+      register();
+    }
+    return;
+  }
   clearNativeCallNotification();
   nativeCallActive = false;
   pendingNative = null;
   try {
     if (live && call) call.answer();
     else if (!live && snap?.phase === "incoming") emit({ phase: "active", startedAt: Date.now() });
-  } catch { /* ignore */ }
+  } catch (e) {
+    emit({ phase: "failed", error: e instanceof Error ? e.message : "Could not answer the call" });
+  }
 }
 
 export function hangupCall() {

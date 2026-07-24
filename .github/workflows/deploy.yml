@@ -1,11 +1,13 @@
 name: Deploy web to digiringo.com
 
-# Builds the production web bundle in the cloud and ships it to Hostinger over
-# SSH. Runs from GitHub's runners (a fresh IP every time) so it NEVER trips the
-# host's fail2ban/SSH throttle the way repeated local scp does. One-time setup:
-# add a repo secret `HOSTINGER_SSH_KEY` = the full contents of the private deploy
-# key (~/.ssh/digiringo_deploy). Then every push to main auto-deploys; you can
-# also trigger it manually from the Actions tab ("Run workflow").
+# Builds the production web bundle in the cloud and ships it to the OVH VPS
+# (148.113.182.43, where DIGIRINGO now runs as the `digiringo` systemd service
+# behind nginx). Unlike Hostinger, OVH allows shell sessions from datacenter IPs,
+# so this uses a plain rsync + `systemctl restart` — no lftp/SFTP throttle dance.
+#
+# One-time setup: repo secret `VPS_SSH_KEY` = the private half of the CI deploy
+# key authorized on the VPS (root). Every push to main auto-deploys; you can also
+# trigger it manually from the Actions tab ("Run workflow").
 
 on:
   push:
@@ -27,12 +29,15 @@ concurrency:
   group: deploy-prod
   cancel-in-progress: false
 
+env:
+  VPS_HOST: 148.113.182.43
+  VPS_USER: root
+  APP_DIR: /opt/digiringo
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # A stuck step used to sit in `in_progress` until GitHub's 6-hour default
-    # killed it, blocking every later deploy behind the concurrency group.
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,82 +64,39 @@ jobs:
           mkdir -p ~/.ssh
           # `tr -d '\r'` repairs a key pasted from a Windows editor (CRLF would
           # otherwise corrupt it and SSH auth fails).
-          printf '%s\n' "${{ secrets.HOSTINGER_SSH_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-
-      # lftp is not a speed choice — it's the only option. Hostinger kills remote
-      # SHELL sessions from datacenter IPs (so rsync / tar-over-ssh can't work)
-      # but leaves the SFTP subsystem open, which is what lftp drives here.
-      #
-      # `apt-get update` is the slow, flaky part: one run hung on it for 10+
-      # minutes. The runner image already ships a usable package index, so try a
-      # bare install first and only refresh the lists if that misses. Both are
-      # under `timeout` so a hung mirror fails in seconds instead of stalling the
-      # job for hours.
-      - name: Install lftp
-        run: |
-          if timeout 120 sudo apt-get install -y -qq lftp; then
-            echo "lftp installed from the cached package index"
-          else
-            echo "cached index missed — refreshing"
-            timeout 240 sudo apt-get update -qq
-            timeout 180 sudo apt-get install -y -qq lftp
-          fi
-          lftp --version | head -1
-
-      - name: Deploy via SFTP (no remote shell — Hostinger kills shell sessions
-              from datacenter IPs, but the SFTP subsystem is allowed)
-        env:
-          SSH_HOST: 153.92.10.88
-          SSH_USER: u545142772
-          SSH_PORT: "65002"
-          BASE: domains/digiringo.com/public_html
-        run: |
           if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
-            echo "::error::HOSTINGER_SSH_KEY is not a valid private key — re-copy the ENTIRE key incl. BEGIN/END lines."
+            echo "::error::VPS_SSH_KEY is not a valid private key — re-copy the ENTIRE key incl. BEGIN/END lines."
             exit 1
           fi
-          date > restart.txt
-          CP="ssh -a -x -i $HOME/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25"
-          # `cmd:fail-exit yes` is what makes a failed mirror actually fail the
-          # step. Without it lftp kept going after "mirror: Fatal error:
-          # max-retries exceeded", still exited 0, and the job reported success
-          # while dist/ had never been uploaded — the site silently stayed stale.
-          # Each mirror is its own lftp invocation so `set -e` catches it and the
-          # log shows exactly which one died.
-          run_lftp() {
-            lftp -c "
-              set cmd:fail-exit yes;
-              set sftp:connect-program \"$CP\";
-              set sftp:auto-confirm yes;
-              set net:max-retries 6; set net:timeout 25; set net:reconnect-interval-base 8;
-              set mirror:parallel-transfer-count 1;
-              open -u \"$SSH_USER,\" sftp://$SSH_HOST;
-              $1;
-              bye
-            "
-          }
-          # Hostinger drops long sessions, so give the big dist mirror 3 attempts;
-          # each resumes where the last left off.
-          for attempt in 1 2 3; do
-            echo "── dist mirror, attempt $attempt"
-            if run_lftp "mirror -R --delete --verbose dist/ \"$BASE/dist/\""; then break; fi
-            if [ "$attempt" = 3 ]; then echo "::error::dist/ upload failed after 3 attempts"; exit 1; fi
-            sleep 20
-          done
-          run_lftp "mirror -R --verbose --include-glob=*.mjs server/ \"$BASE/server/\""
-          run_lftp "mirror -R --verbose --include-glob=*.sql server/migrations/ \"$BASE/server/migrations/\""
-          run_lftp "put -O \"$BASE/tmp/\" restart.txt"
-          echo '✓ deployed via SFTP + restart triggered'
+          ssh-keyscan -p 22 "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to VPS (rsync dist/ + server/, restart service)
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key -p 22 -o StrictHostKeyChecking=accept-new -o ConnectTimeout=25"
+          # Replace the built front-end and the server code. --delete keeps the
+          # targets clean; we ONLY sync these two subdirs so /opt/digiringo/.env,
+          # node_modules and package.json (runtime state on the box) are untouched.
+          rsync -az --delete -e "$SSH" dist/   "$VPS_USER@$VPS_HOST:$APP_DIR/dist/"
+          rsync -az --delete -e "$SSH" server/ "$VPS_USER@$VPS_HOST:$APP_DIR/server/"
+          # The server is otherwise zero-dependency; make sure its only two runtime
+          # deps are present, then restart under systemd and confirm it came up.
+          $SSH "$VPS_USER@$VPS_HOST" '
+            cd '"$APP_DIR"' &&
+            (node -e "require.resolve(\"mysql2\");require.resolve(\"nodemailer\")" 2>/dev/null || npm i --omit=dev --no-audit --no-fund mysql2 nodemailer) &&
+            systemctl restart digiringo &&
+            sleep 3 &&
+            test "$(systemctl is-active digiringo)" = active &&
+            echo "✓ digiringo active"'
 
       - name: Verify
         run: |
-          sleep 8
+          sleep 5
           code=$(curl -s -o /dev/null -w '%{http_code}' https://digiringo.com/app || echo "000")
           echo "digiringo.com/app → $code"
-          # Assert the LIVE bundle is the one we just built. A stale hash means the
-          # upload silently didn't land, which is exactly the failure that shipped
-          # a renamed site to nobody.
+          # Assert the LIVE bundle is the one we just built — a stale hash means the
+          # upload silently didn't land.
           want=$(grep -oE 'main-[A-Za-z0-9_-]+\.js' dist/index.html | head -1)
           live=$(curl -s "https://digiringo.com/app?cb=$(date +%s)" | grep -oE 'main-[A-Za-z0-9_-]+\.js' | head -1)
           echo "built: $want"

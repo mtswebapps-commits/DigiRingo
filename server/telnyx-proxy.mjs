@@ -657,6 +657,31 @@ async function notifyIncomingCall(userId, from) {
   } else { console.error(`📲 FCM not configured — no call alert for uid=${userId}`); }
 }
 
+/** Tell a user's devices to STOP ringing — the inbound call's ring phase is over
+ *  (answered on one device, caller gave up, or it moved to forward/voicemail).
+ *  Fans a data-only `{type:"cancel"}` push so every browser tab + native app that
+ *  is still showing the incoming-call notification dismisses it. The device that
+ *  actually answered has already cleared its own locally, so a redundant cancel to
+ *  it is harmless. */
+async function notifyCancelCall(userId) {
+  if (!db) return;
+  if (webPushConfigured()) {
+    try {
+      const subs = await db.getPushSubscriptions(userId);
+      await Promise.all(subs.map(async (s) => {
+        const r = await sendPush(s, { type: "cancel" });
+        if (r.gone) await db.deletePushSubscription(s.endpoint).catch(() => {});
+      }));
+    } catch (e) { console.error("notifyCancelCall (web):", e.message); }
+  }
+  if (fcmConfigured()) {
+    try {
+      const tokens = await db.getPushTokens(userId);
+      await sendFcmToUser(tokens, { dataOnly: true, data: { type: "cancel" } }, (t) => db.deletePushToken(t));
+    } catch (e) { console.error("notifyCancelCall (fcm):", e.message); }
+  }
+}
+
 /** Alert a user's browsers AND native app on inbound SMS (backgrounded/closed). */
 async function notifyIncomingSms(userId, from, text) {
   if (!db) return;
@@ -882,8 +907,8 @@ function handleWebhook(payload) {
     const status = p.to?.[0]?.status ?? "sent";
     updateStatus(p.id, status);
   } else if (type && String(type).startsWith("call.")) {
-    // TEMP diagnostic: trace inbound call routing / hangup causes.
-    console.log(`☎ ${type} dir=${p.direction || ""} state=${p.state || ""} from=${p.from || ""} to=${p.to || ""} cause=${p.hangup_cause || ""} sip=${p.sip_hangup_cause || ""}`);
+    // Trace call routing/hangup causes without logging the actual phone numbers.
+    console.log(`☎ ${type} dir=${p.direction || ""} state=${p.state || ""} cause=${p.hangup_cause || ""} sip=${p.sip_hangup_cause || ""}`);
   }
 }
 
@@ -936,12 +961,16 @@ createServer(async (req, res) => {
       const to = q.get("to") || p.get("To") || "";
       const from = q.get("from") || p.get("From") || "";
       const dialStatus = p.get("DialCallStatus") || "";
-      // TEMP diagnostic — trace inbound routing (why calls hit voicemail).
-      const allParams = {}; for (const [k, val] of p) allParams[k] = val;
       const own = db ? await db.findNumberOwner(to).catch(() => null) : null;
-      console.error(`☎ TEXML stage=${stage} to=${to} from=${from} dialStatus=${dialStatus} sip=${own?.sipUsername || "-"} fwd=${own?.forwardNumber || "-"} vm=${own?.voicemailEnabled} params=${JSON.stringify(allParams)}`);
+      // Trace inbound routing without logging caller/callee/forward numbers (PII).
+      console.log(`☎ TEXML stage=${stage} dialStatus=${dialStatus || "-"} owner=${own?.userId ?? "none"} vm=${own?.voicemailEnabled ?? "-"}`);
       // On the first hop, web-push the owner so a backgrounded browser tab alerts.
       if (stage === "start" && own) notifyIncomingCall(own.userId, from).catch(() => {});
+      // Any action callback (stage != start) means the in-app/native ring is over
+      // — the SIP <Dial> answered on one device, timed out, or the caller hung up.
+      // Dismiss the incoming-call notification on ALL of the user's devices so it
+      // stops ringing elsewhere once one device (or none) took it.
+      else if (stage !== "start" && own) notifyCancelCall(own.userId).catch(() => {});
       // Meter FORWARDED-to-cellphone legs server-side (the browser is not in the
       // call, so nothing else logs them). stage=vm is the forward <Dial>'s action
       // callback; in-app SIP legs (stage=fwd) are logged/metered by the app.
@@ -1709,28 +1738,8 @@ createServer(async (req, res) => {
     const body = await readBody(req);
     let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
     if (!d.token) return send(res, 400, { error: "token required" });
-    console.error(`📲 PUSH-TOKEN saved uid=${uid} platform=${d.platform || "android"} tok=${String(d.token).slice(0, 18)}…`); // TEMP diagnostic
     try { await db.savePushToken(uid, d.token, d.platform || "android"); return send(res, 200, { ok: true }); }
     catch (e) { return send(res, 500, { error: e.message }); }
-  }
-
-  // TEMP diagnostic: fire a test FCM to a user's saved tokens and report the raw
-  // per-token result. Guarded by a shared secret so it isn't publicly abusable.
-  if (req.url?.startsWith("/api/_fcmtest") && req.method === "GET") {
-    const q = new URL(req.url, "http://x").searchParams;
-    if (q.get("k") !== "fcmdiag-7z3k9") return send(res, 403, { error: "forbidden" });
-    const u = Number(q.get("u") || 0);
-    if (!db || !u) return send(res, 400, { error: "u required" });
-    try {
-      const tokens = await db.getPushTokens(u);
-      const results = [];
-      for (const t of tokens) {
-        const tok = typeof t === "string" ? t : t.token;
-        const r = await sendFcm(tok, { title: "Incoming call", body: "+1 555 0100", dataOnly: true, data: { type: "call", caller: "+1 555 0100" } });
-        results.push({ tok: String(tok).slice(0, 16) + "…", ...r });
-      }
-      return send(res, 200, { configured: fcmConfigured(), count: tokens.length, results });
-    } catch (e) { return send(res, 500, { error: e.message }); }
   }
 
   // Anything that isn't an API/webhook route → serve the built front-end.
@@ -1802,6 +1811,23 @@ createServer(async (req, res) => {
         return send(res, 403, { errors: [{ detail: "You can only send from a number you own." }] });
       }
     }
+  }
+
+  // Lock down the raw Telnyx proxy for REGULAR users. Everything below reaches ONE
+  // shared platform Telnyx account, so any unlisted path is a cross-tenant / fraud
+  // risk: listing or DELETING other users' numbers, reading the whole account's
+  // call detail records, or POSTing /calls to originate Call-Control calls on the
+  // platform's dime. In LIVE mode the app only needs number search, outbound SMS
+  // and 10DLC registration here — owned numbers, call history and dialing all go
+  // through DB-scoped /api/* routes or WebRTC, never this raw proxy. Admin tokens
+  // (tnUid null + valid admin token) are trusted and skip the allow-list.
+  if (tnUid) {
+    const allowed =
+      (req.method === "GET"  && path.startsWith("/available_phone_numbers")) ||
+      (req.method === "POST" && path.startsWith("/messages")) ||
+      (req.method === "GET"  && path.startsWith("/messages/")) ||
+      path.startsWith("/10dlc");
+    if (!allowed) return send(res, 403, { errors: [{ detail: "This operation isn't permitted." }] });
   }
 
   // 3) Everything else → forward to Telnyx with the secret key

@@ -32,6 +32,15 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { /* ignore */ }
+  // Ring cancelled elsewhere (answered on another device / caller hung up) → close
+  // the incoming-call notification instead of showing one.
+  if (data.type === "cancel") {
+    event.waitUntil((async () => {
+      const ns = await self.registration.getNotifications({ tag: "dg-incoming-call" });
+      ns.forEach((n) => n.close());
+    })());
+    return;
+  }
   const isSms = data.type === "sms";
   const title = data.title || (isSms ? "New message" : "Incoming call");
   const body = data.body || (isSms ? "You have a new message" : "Someone is calling you");

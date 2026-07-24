@@ -25,7 +25,7 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 5,
-  charset: "utf8mb4_general_ci",
+  charset: "utf8mb4_unicode_ci",
 });
 
 const AUTH_SECRET = process.env.AUTH_SECRET || "dev-insecure-change-me";
@@ -431,6 +431,20 @@ async function debitIfEnough(uid, amount, label) {
  *  (wallet untouched); wallet-paid plans debit the wallet. Either path falls
  *  back to the other before going past_due. */
 async function tryRenew(s) {
+  // Claim this renewal atomically so concurrent triggers — the lazy renew in
+  // getSubscription (which the app can fire ~6× in a couple seconds during a
+  // billing sync) racing the hourly sweep — can't each charge for the same
+  // period. Only the worker that flips the row out of its exact (active,
+  // period_end) state wins; everyone else reloads and bails without charging.
+  const [claim] = await pool.query(
+    "UPDATE subscriptions SET status = 'renewing' WHERE id = ? AND status = 'active' AND period_end = ?",
+    [s.id, s.period_end]
+  );
+  if (!claim.affectedRows) {
+    const [rows] = await pool.query("SELECT * FROM subscriptions WHERE id = ?", [s.id]);
+    return rows[0] || null;
+  }
+
   const amount = Number(s.renew_amount || 0);
   const c = s.cycle === "annual" ? "annual" : "monthly";
   const label = `Auto-renew — ${s.tier} plan (${c})`;
@@ -479,11 +493,14 @@ async function attachCapacity(uid, shaped) {
  *  whose period has lapsed are auto-renewed from the wallet lazily on access. */
 export async function getSubscription(uid) {
   const [rows] = await pool.query(
-    "SELECT * FROM subscriptions WHERE user_id = ? AND status IN ('active','past_due') ORDER BY id DESC LIMIT 1",
+    "SELECT * FROM subscriptions WHERE user_id = ? AND status IN ('active','past_due','renewing') ORDER BY id DESC LIMIT 1",
     [uid]
   );
   const s = rows[0];
   if (!s) return null;
+  // Mid-renewal (another worker holds the claim) → show it as active; don't
+  // trigger a second renewal. It resolves to active/past_due within ~1s.
+  if (s.status === "renewing") return attachCapacity(uid, shapeSub({ ...s, status: "active" }));
   // Only an ACTIVE plan whose period has lapsed triggers a renewal attempt. A
   // past_due plan is surfaced as-is so the app can prompt a top-up (recovery is
   // by re-subscribing, which supersedes the past_due row).

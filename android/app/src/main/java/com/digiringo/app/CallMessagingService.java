@@ -45,6 +45,10 @@ public class CallMessagingService extends com.capacitorjs.plugins.pushnotificati
         Map<String, String> data = remoteMessage.getData();
         if (data != null && "call".equals(data.get("type"))) {
             if (!appForeground) showIncomingCall(data);
+        } else if (data != null && "cancel".equals(data.get("type"))) {
+            // Ring cancelled elsewhere (answered on another device / caller hung up)
+            // → dismiss this device's full-screen incoming-call notification.
+            NotificationManagerCompat.from(this).cancel(CALL_NOTIF_ID);
         } else {
             super.onMessageReceived(remoteMessage);
         }

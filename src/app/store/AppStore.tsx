@@ -450,7 +450,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch { /* subscription load is non-fatal */ }
       return { ok: true };
     } catch (e) {
-      if (isNetworkError(e)) { mockLogin(email, name); return { ok: true }; }
+      // In a LIVE build a network error must NOT fabricate a fake local session —
+      // that hid real outages behind an empty "logged-in" UI. Surface the failure.
+      if (isNetworkError(e)) return { ok: false, error: "Can't reach the server — check your connection and try again." };
       return { ok: false, error: e instanceof Error ? e.message : "Login failed" };
     }
   }, [mockLogin, applySub]);
