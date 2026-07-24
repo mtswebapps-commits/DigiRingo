@@ -16,7 +16,7 @@ function Panel({ title, sub, action, children, bodyPad = 18, scroll }: {
   title?: string; sub?: string; action?: ReactNode; children: ReactNode; bodyPad?: number; scroll?: boolean;
 }) {
   return (
-    <section style={{ background: C.card, border: `1px solid ${C.lineSoft}`, borderRadius: 16, display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <section style={{ background: C.card, border: `1px solid ${C.lineSoft}`, borderRadius: 16, display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
       {(title || action) && (
         <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 18px", borderBottom: `1px solid ${C.lineSoft}`, flexShrink: 0 }}>
           <div>
@@ -87,15 +87,15 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14, minWidth: 0 }}>
         <StatTile Icon={Phone} label="Active numbers" value={state.numbers.length} accent={C.blue} sub={`${state.numbers.filter((n) => n.verification === "verified").length} verified`} />
         <StatTile Icon={Wallet2} label="Wallet balance" value={`$${state.wallet.balance.toFixed(2)}`} accent={C.green} sub="Funds usage & top-ups" />
         <StatTile Icon={Sparkles} label="Current plan" value={bundle ? bundle.name : "Pay-as-you-go"} accent={C.purple} sub={sub ? `${sub.cycle} · renews ${new Date(sub.periodEnd).toLocaleDateString([], { month: "short", day: "numeric" })}` : "No active bundle"} />
         <StatTile Icon={MessageSquare} label="Unread messages" value={unread} accent={C.amber} sub={`${state.conversations.length} conversations`} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, alignItems: "start" }}>
-        <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)", gap: 16, alignItems: "start", minWidth: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, minWidth: 0 }}>
           {/* Plan usage */}
           <Panel title="Plan usage" action={<button style={ghostBtn} onClick={() => go("plans")}>Manage plan</button>}>
             {sub && bundle ? (
@@ -143,7 +143,7 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
           </Panel>
         </div>
 
-        <div style={{ display: "grid", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, minWidth: 0 }}>
           {/* Quick actions */}
           <Panel title="Quick actions">
             <div style={{ display: "grid", gap: 10 }}>
