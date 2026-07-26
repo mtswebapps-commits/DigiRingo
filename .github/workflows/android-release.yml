@@ -1,0 +1,55 @@
+name: Promote to Play track (production)
+
+# Manual-only. Promotes an ALREADY-uploaded bundle (from the build workflow) to a
+# Play track — default: production, completed rollout. No file is re-uploaded, so
+# it never collides with a used versionCode. Requires the PLAY_SERVICE_ACCOUNT_JSON
+# secret. NOTE: a brand-new app that has never gone live can only create a *draft*
+# production release via the API — the first go-live must be "sent for review" in
+# the Play Console UI. After that first review, completed rollouts work here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Target track"
+        type: choice
+        default: production
+        options: [production, beta, alpha, internal]
+      status:
+        description: "Release status"
+        type: choice
+        default: completed
+        options: [completed, draft, inProgress]
+      version_code:
+        description: "versionCode to promote (blank = highest uploaded)"
+        required: false
+        default: ""
+      rollout_fraction:
+        description: "Staged rollout fraction, e.g. 0.1 (only with status=inProgress)"
+        required: false
+        default: ""
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Google API client
+        run: pip install --quiet google-api-python-client google-auth
+
+      - name: Promote bundle
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PACKAGE_NAME: com.digiringo.app
+          TRACK: ${{ inputs.track }}
+          STATUS: ${{ inputs.status }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          ROLLOUT_FRACTION: ${{ inputs.rollout_fraction }}
+        run: python scripts/play-promote.py
