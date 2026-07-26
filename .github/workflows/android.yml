@@ -104,6 +104,30 @@ jobs:
           path: android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
 
+      # --- Auto-publish to Google Play (Internal testing, draft) -------------
+      # Only runs when both the signing keystore AND the Play service-account
+      # secret exist. Uploads the signed AAB to the "internal" track as a draft
+      # release — nothing goes to testers/public until you complete it in the
+      # Play Console. Skips silently (build still succeeds) until the secret
+      # PLAY_SERVICE_ACCOUNT_JSON is configured.
+      - name: Check Play publishing secret
+        id: play
+        env:
+          SA_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -n "$SA_JSON" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"
+          else echo "ready=false" >> "$GITHUB_OUTPUT"; echo "::notice::PLAY_SERVICE_ACCOUNT_JSON not set — skipping Play upload."; fi
+
+      - name: Upload AAB to Google Play (internal, draft)
+        if: steps.signing.outputs.ready == 'true' && steps.play.outputs.ready == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.digiringo.app
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: draft
+
       - name: Remove keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/upload.jks"
