@@ -791,7 +791,7 @@ async function fulfilPurchase(uid, m, sessionId) {
   const kind = m.kind;
   if (kind === "topup") {
     const amt = Number(m.amount) || 0;
-    if (amt > 0) await db.creditWallet(uid, amt, `Wallet top-up $${amt.toFixed(2)} (Stripe)`, `stripe_${sessionId}`);
+    if (amt > 0) await db.creditWallet(uid, amt, `Wallet top-up $${amt.toFixed(2)} (PayPal)`, `pay_${sessionId}`);
     return;
   }
   if (kind === "plan" || kind === "plan_number") {
