@@ -3,7 +3,7 @@ import { ArrowLeft, Check, Wallet, CreditCard, X, Sparkles, Loader2 } from "luci
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import { BUNDLES, bundlePrice, getBundle, type Bundle, type BillingCycle, type PayMethod } from "../core/plans";
-import { startCheckout, stripeReady } from "../services/stripe";
+import { startCheckout, paymentReady } from "../services/paypal";
 
 interface Props { onBack: () => void; onTopUp: () => void; }
 
@@ -231,7 +231,7 @@ export function PaySheet({ bundle, cycle, walletBalance, onClose, onWallet, onCa
         <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 0.8, textTransform: "uppercase" }}>Pay with</p>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <PayTab active={pay === "wallet"} onClick={() => setPay("wallet")} Icon={Wallet} title="Wallet" sub={`Balance $${walletBalance.toFixed(2)}`} />
-          <PayTab active={pay === "card"} onClick={() => setPay("card")} Icon={CreditCard} title="Card" sub="Pay directly" disabled={!stripeReady()} />
+          <PayTab active={pay === "card"} onClick={() => setPay("card")} Icon={CreditCard} title="PayPal" sub="Card or balance" disabled={!paymentReady()} />
         </div>
 
         {pay === "wallet" ? (
@@ -249,7 +249,7 @@ export function PaySheet({ bundle, cycle, walletBalance, onClose, onWallet, onCa
           <>
             <p style={{ color: C.muted, fontSize: 12, marginBottom: 12, textAlign: "center" }}>Pay <b style={{ color: C.text }}>${price.toFixed(cycle === "annual" ? 0 : 2)}</b> securely by card — renews automatically.</p>
             <button disabled={busy} onClick={payByCard} style={{ ...primaryBtn, opacity: busy ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              {busy ? <><Loader2 size={17} className="dg-spin" /> Opening checkout…</> : <><CreditCard size={17} /> Pay by card</>}
+              {busy ? <><Loader2 size={17} className="dg-spin" /> Opening checkout…</> : <><CreditCard size={17} /> Pay with PayPal</>}
             </button>
           </>
         )}

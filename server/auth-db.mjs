@@ -17,6 +17,7 @@ import mysql from "mysql2/promise";
 import { randomBytes, scryptSync, timingSafeEqual, createHmac, createHash } from "node:crypto";
 import { PAYG_RELOAD, OVERFLOW_RATES, NUMBER_RENTAL, bundleFor } from "./plans.mjs";
 import { chargeOffSession, stripeConfigured } from "./stripe.mjs";
+import { chargeOffSession as paypalChargeOffSession, paypalConfigured } from "./paypal.mjs";
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || "localhost",
@@ -384,12 +385,30 @@ export async function saveBillingProfile(uid, { customerId, paymentMethodId, bra
   );
 }
 
-/** Charge the user's saved card off-session. Returns true when the charge
- *  succeeded, false when there's no usable card or Stripe declined it. */
+/** Charge the user's saved payment method off-session (auto-renew). Works with
+ *  either rail: a vaulted PayPal payer (brand "PayPal" → reference transaction) or
+ *  a saved Stripe card. Returns true when the charge succeeded, false when there's
+ *  no usable method on file or the provider declined it — the caller then falls
+ *  back to the wallet. PayPal off-session needs Reference Transactions enabled on
+ *  the merchant account (PAYPAL_VAULT); without it this simply returns false. */
 async function chargeSavedCard(uid, amount, description) {
-  if (!stripeConfigured()) return false;
   const bp = await getBillingProfile(uid);
-  if (!bp?.customerId || !bp?.paymentMethodId) return false;
+  if (!bp?.paymentMethodId) return false;
+  // PayPal vaulted payer.
+  if (bp.brand === "PayPal" && paypalConfigured()) {
+    try {
+      await paypalChargeOffSession({
+        vaultId: bp.paymentMethodId, amountCents: Math.round(amount * 100),
+        description, metadata: { uid: String(uid), kind: "renewal" },
+      });
+      return true;
+    } catch (e) {
+      console.error(`[billing] PayPal off-session charge failed for uid=${uid}:`, e.message);
+      return false;
+    }
+  }
+  // Stripe saved card.
+  if (!stripeConfigured() || !bp.customerId) return false;
   try {
     await chargeOffSession({
       customerId: bp.customerId, paymentMethodId: bp.paymentMethodId,

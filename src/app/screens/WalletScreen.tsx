@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { ArrowLeft, ArrowDownLeft, ArrowUpRight, Plus, X, ShieldAlert, Loader2, CreditCard, RefreshCw } from "lucide-react";
 import { C, font, radius, gradients } from "../core/theme";
 import { useApp } from "../store/AppStore";
-import { startCheckout, stripeReady } from "../services/stripe";
+import { startCheckout, paymentReady, supportsSavedCard } from "../services/paypal";
 import { apiGetPaymentMethod, apiChangeCard, type ApiSavedCard } from "../services/api";
 
 interface Props { onBack?: () => void; onOpenTrust: () => void; desktop?: boolean; }
@@ -30,7 +30,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
   const [cardLoaded, setCardLoaded] = useState(false);
   const [cardBusy, setCardBusy] = useState(false);
   useEffect(() => {
-    if (!stripeReady()) { setCardLoaded(true); return; }
+    if (!supportsSavedCard()) { setCardLoaded(true); return; }
     apiGetPaymentMethod()
       .then((r) => setCard(r.card))
       .catch(() => { /* section still renders with "no card" */ })
@@ -53,7 +53,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
 
   const topUp = async (amount: number) => {
     if (!(amount > 0)) { showToast("Enter an amount", "error"); return; }
-    if (!stripeReady()) { topUpSimulated(amount); return; }
+    if (!paymentReady()) { topUpSimulated(amount); return; }
     setBusy(amount);
     try {
       // Redirects to Stripe Checkout; the webhook credits the wallet, and we
@@ -87,9 +87,9 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
         </div>
       </div>
 
-      {/* Payment method — the card on file for auto-renewals (masked; the real
-          card lives at Stripe). Change swaps it via a hosted setup page. */}
-      {stripeReady() && cardLoaded && (
+      {/* Payment method — a card on file for auto-renewals (Stripe only). Hidden
+          under PayPal, which manages the funding source on its own side. */}
+      {supportsSavedCard() && cardLoaded && (
         <div style={{ padding: "0 20px 16px" }}>
           <p style={{ color: C.text, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Payment method</p>
           <div style={{ background: C.card, borderRadius: radius.lg, border: `1px solid ${C.lineSoft}`, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -179,7 +179,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
               <button onClick={() => busy === null && setSheet(false)} style={{ width: 34, height: 34, borderRadius: 11, background: C.input, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={16} color={C.muted} /></button>
             </div>
             <p style={{ color: C.muted, fontSize: 12.5, marginBottom: 16, lineHeight: 1.5 }}>
-              Choose an amount and pay securely by card{stripeReady() ? "" : " (test mode)"}. Your balance updates as soon as the payment is confirmed.
+              Choose an amount and pay securely with PayPal{paymentReady() ? "" : " (test mode)"}. Your balance updates as soon as the payment is confirmed.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {PACKS.map((p) => {

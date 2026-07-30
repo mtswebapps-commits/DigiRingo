@@ -30,6 +30,7 @@ import { createHmac, timingSafeEqual, createPublicKey, verify as edVerify } from
 import { numberPrice, bundleCharge } from "./plans.mjs";
 import { sendPush, vapidPublicKey, webPushConfigured } from "./webpush.mjs";
 import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify, publishableKey as stripePubKey, stripeConfigured, createCustomer as stripeCreateCustomer, createSetupSession as stripeSetupSession, cardFromIntent as stripeCardFromIntent } from "./stripe.mjs";
+import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
 import * as settings from "./settings-store.mjs";
 import { sendFcmToUser, sendFcm, fcmConfigured } from "./fcm.mjs";
 
@@ -165,8 +166,8 @@ if (!telnyxKey()) {
 /* ---- Control Hub config (Payments / Integrations / Settings) helpers ---- */
 const nowId = () => Date.now().toString(36) + createHmac("sha256", ADMIN_SECRET).update(String(process.hrtime.bigint())).digest("hex").slice(0, 5);
 // Secrets the dashboard is allowed to store (encrypted). These override the env.
-const ALLOWED_SECRETS = new Set(["TELNYX_API_KEY", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET", "PAYPAL_CLIENT_SECRET", "SMTP_PASS"]);
-const PROVIDER_SECRET = { stripe: "STRIPE_SECRET_KEY", paypal: "PAYPAL_CLIENT_SECRET" };
+const ALLOWED_SECRETS = new Set(["TELNYX_API_KEY", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET", "PAYPAL_CLIENT_ID", "PAYPAL_SECRET", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID", "SMTP_PASS"]);
+const PROVIDER_SECRET = { stripe: "STRIPE_SECRET_KEY", paypal: "PAYPAL_SECRET" };
 const GENERAL_DEFAULTS = { platformName: "DIGIRINGO", supportEmail: "support@digiringo.com", currency: "USD", platformFeePct: 0, payoutSchedule: "Daily", payoutDestination: "Stripe" };
 
 /** Real status for a secret: a value saved via the Control Hub (encrypted in the
@@ -182,6 +183,7 @@ function shortDate(iso) { try { return new Date(iso).toLocaleDateString("en-US",
 function defaultWebhooks() {
   return [
     { id: "wh_telnyx", label: "Telnyx — inbound SMS & DLR", url: "/webhooks/telnyx", enabled: true, secretSet: !!TELNYX_PUBLIC_KEY },
+    { id: "wh_paypal", label: "PayPal — payment events", url: "/api/paypal/webhook", enabled: true, secretSet: secretStatus("PAYPAL_WEBHOOK_ID", "PAYPAL_WEBHOOK_ID").status === "set" },
     { id: "wh_stripe", label: "Stripe — payment events", url: "/api/stripe/webhook", enabled: true, secretSet: secretStatus("STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET").status === "set" },
   ];
 }
@@ -191,15 +193,16 @@ function buildConfig() {
   const credentials = [
     cred("telnyx", "Telnyx", "Numbers, SMS, voice, 10DLC", "TELNYX_API_KEY", "TELNYX_API_KEY"),
     cred("stripe", "Stripe", "Payments secret key (sk_live_…)", "STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"),
-    cred("paypal", "PayPal", "REST client id & secret", "PAYPAL_CLIENT_SECRET", "PAYPAL_CLIENT_SECRET"),
+    cred("paypal_id", "PayPal client id", "REST app client id (public)", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_ID"),
+    cred("paypal", "PayPal secret", "REST app secret", "PAYPAL_SECRET", "PAYPAL_SECRET"),
     cred("smtp", "Email (SMTP)", "Transactional / password-reset email", "SMTP_PASS", "SMTP_PASS"),
   ];
   const prov = settings.getJSON("providers", {});
   const stripeS = secretStatus("STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY");
-  const paypalS = secretStatus("PAYPAL_CLIENT_SECRET", "PAYPAL_CLIENT_SECRET");
+  const paypalS = secretStatus("PAYPAL_SECRET", "PAYPAL_SECRET");
   const providers = [
     { id: "stripe", name: "Stripe", blurb: "Card payments, subscriptions & payouts", connected: stripeS.status === "set", enabled: prov.stripe?.enabled ?? (stripeS.status === "set"), secretLast4: stripeS.last4, account: prov.stripe?.account || "" },
-    { id: "paypal", name: "PayPal", blurb: "PayPal balance & checkout", connected: paypalS.status === "set", enabled: prov.paypal?.enabled ?? false, secretLast4: paypalS.last4, account: prov.paypal?.account || "" },
+    { id: "paypal", name: "PayPal", blurb: "PayPal balance & checkout", connected: paypalConfigured(), enabled: prov.paypal?.enabled ?? paypalConfigured(), secretLast4: paypalS.last4, account: prov.paypal?.account || "" },
     { id: "bank", name: "Bank transfer", blurb: "Manual / wire top-ups", connected: !!prov.bank?.connected, enabled: prov.bank?.enabled ?? false, account: prov.bank?.account || "" },
   ];
   const general = { ...GENERAL_DEFAULTS, ...settings.getJSON("general", {}) };
@@ -781,9 +784,10 @@ async function releaseTelnyxNumber(e164) {
   } catch (e) { return { ok: false, reason: e.message }; }
 }
 
-/** Fulfil a completed Stripe Checkout from its metadata: credit wallet (topup),
- *  activate the plan, and/or provision the paid number. */
-async function fulfilStripe(uid, m, sessionId) {
+/** Fulfil a completed checkout (Stripe or PayPal) from its metadata: credit wallet
+ *  (topup), activate the plan, and/or provision the paid number. Provider-agnostic
+ *  — it only reads the metadata map (uid, kind, tier, cycle, phone, numberKind). */
+async function fulfilPurchase(uid, m, sessionId) {
   const kind = m.kind;
   if (kind === "topup") {
     const amt = Number(m.amount) || 0;
@@ -809,6 +813,41 @@ async function fulfilStripe(uid, m, sessionId) {
     const nkind = m.numberKind === "tollfree" ? "tollfree" : "local";
     await orderTelnyxNumber(uid, m.phone, nkind, { free: false, amount: numberPrice(nkind) });
   }
+}
+
+/** Turn a client checkout request into server-priced line items + fulfilment
+ *  metadata (the SERVER decides every price; the client is never trusted). Shared
+ *  by the Stripe and PayPal checkout routes. Returns { error } or
+ *  { lineItems, metadata }. */
+function buildPurchase(g, uid) {
+  const pickedPhone = String(g.phone || "").replace(/[^\d+]/g, "");
+  if ((g.kind === "plan_number" || g.kind === "number") && !pickedPhone) {
+    return { error: "No phone number selected" };
+  }
+  let lineItems, metadata = { uid: String(uid) };
+  if (g.kind === "topup") {
+    const amt = Math.max(1, Math.min(1000, Number(g.amount) || 0)); // clamp $1–$1000
+    lineItems = [{ name: "DIGIRINGO wallet top-up", amountCents: Math.round(amt * 100) }];
+    metadata = { ...metadata, kind: "topup", amount: amt.toFixed(2) };
+  } else if (g.kind === "plan" || g.kind === "plan_number") {
+    const cycle = g.cycle === "annual" ? "annual" : "monthly";
+    const charge = bundleCharge(g.tier, cycle);
+    if (!charge) return { error: "Unknown plan" };
+    lineItems = [{ name: `${charge.bundle.name} plan (${cycle})`, amountCents: Math.round(charge.amount * 100) }];
+    metadata = { ...metadata, kind: g.kind, tier: charge.bundle.id, cycle };
+    if (g.kind === "plan_number") {
+      const nkind = g.numberKind === "tollfree" ? "tollfree" : "local";
+      lineItems.push({ name: `Phone number ${pickedPhone}`, amountCents: Math.round(numberPrice(nkind) * 100) });
+      metadata = { ...metadata, phone: pickedPhone, numberKind: nkind };
+    }
+  } else if (g.kind === "number") {
+    const nkind = g.numberKind === "tollfree" ? "tollfree" : "local";
+    lineItems = [{ name: `Phone number ${pickedPhone}`, amountCents: Math.round(numberPrice(nkind) * 100) }];
+    metadata = { ...metadata, kind: "number", phone: pickedPhone, numberKind: nkind };
+  } else {
+    return { error: "Unknown checkout type" };
+  }
+  return { lineItems, metadata };
 }
 
 /* ------------------------------------------------------ in-memory inbox store */
@@ -1051,7 +1090,7 @@ createServer(async (req, res) => {
     try {
       claimed = await db.recordFreemiusEvent(evt.id); // reuse the event-dedup table
       if (!claimed) return send(res, 200, { ok: true, duplicate: true });
-      await fulfilStripe(uid, m, session.id || evt.id);
+      await fulfilPurchase(uid, m, session.id || evt.id);
       // Card-on-file: remember the customer + masked card so renewals can charge
       // it DIRECTLY and the app can show "VISA •••• 4242". Best-effort.
       try {
@@ -1081,42 +1120,110 @@ createServer(async (req, res) => {
     const cancelUrl = `${base}/app?pay=cancel`;
     let email = null; try { const u = await db.getUser?.(uid); email = u?.email || null; } catch { /* optional */ }
     try {
-      // Normalize the picked number to strict E.164 up front; a number checkout
-      // without a number must fail HERE, not silently charge and never provision.
-      const pickedPhone = String(g.phone || "").replace(/[^\d+]/g, "");
-      if ((g.kind === "plan_number" || g.kind === "number") && !pickedPhone) {
-        return send(res, 400, { error: "No phone number selected" });
-      }
-      let lineItems, metadata = { uid: String(uid) };
-      if (g.kind === "topup") {
-        const amt = Math.max(1, Math.min(1000, Number(g.amount) || 0)); // clamp $1–$1000
-        lineItems = [{ name: "DIGIRINGO wallet top-up", amountCents: Math.round(amt * 100) }];
-        metadata = { ...metadata, kind: "topup", amount: amt.toFixed(2) };
-      } else if (g.kind === "plan" || g.kind === "plan_number") {
-        const cycle = g.cycle === "annual" ? "annual" : "monthly";
-        const charge = bundleCharge(g.tier, cycle);
-        if (!charge) return send(res, 400, { error: "Unknown plan" });
-        lineItems = [{ name: `${charge.bundle.name} plan (${cycle})`, amountCents: Math.round(charge.amount * 100) }];
-        metadata = { ...metadata, kind: g.kind, tier: charge.bundle.id, cycle };
-        if (g.kind === "plan_number") {
-          const nkind = g.numberKind === "tollfree" ? "tollfree" : "local";
-          lineItems.push({ name: `Phone number ${pickedPhone}`, amountCents: Math.round(numberPrice(nkind) * 100) });
-          metadata = { ...metadata, phone: pickedPhone, numberKind: nkind };
-        }
-      } else if (g.kind === "number") {
-        const nkind = g.numberKind === "tollfree" ? "tollfree" : "local";
-        lineItems = [{ name: `Phone number ${pickedPhone}`, amountCents: Math.round(numberPrice(nkind) * 100) }];
-        metadata = { ...metadata, kind: "number", phone: pickedPhone, numberKind: nkind };
-      } else {
-        return send(res, 400, { error: "Unknown checkout type" });
-      }
+      const built = buildPurchase(g, uid);
+      if (built.error) return send(res, 400, { error: built.error });
       // Reuse the saved Stripe customer so the card stays attached to one identity.
       let customerId = null;
       try { customerId = (await db.getBillingProfile?.(uid))?.customerId || null; } catch { /* optional */ }
-      const sess = await stripeCheckout({ lineItems, metadata, successUrl, cancelUrl, customerEmail: email, customerId });
+      const sess = await stripeCheckout({ ...built, successUrl, cancelUrl, customerEmail: email, customerId });
       return send(res, 200, { url: sess.url, id: sess.id });
     } catch (e) {
       return send(res, 502, { error: e.message || "Could not start checkout" });
+    }
+  }
+
+  /* ----------------------------------------------------- PayPal (card rail) */
+  //    GET /api/paypal/config → { clientId, enabled } (public client id only).
+  if (req.url?.startsWith("/api/paypal/config") && req.method === "GET") {
+    return send(res, 200, { clientId: paypalClientId(), enabled: paypalConfigured() });
+  }
+  //    POST /api/paypal/checkout — create a hosted PayPal order for a topup /
+  //    plan / plan+number / number. SERVER sets all prices (never trusts client).
+  if (req.url?.startsWith("/api/paypal/checkout") && req.method === "POST") {
+    if (!db) return send(res, 503, { error: "Database not configured" });
+    const uid = db.verifyToken(bearer(req));
+    if (!uid) return send(res, 401, { error: "Not authenticated" });
+    if (!paypalConfigured()) return send(res, 503, { error: "PayPal is not configured" });
+    const body = await readBody(req);
+    let g; try { g = JSON.parse(body || "{}"); } catch { g = {}; }
+    const base = `https://${req.headers.host}`;
+    try {
+      const built = buildPurchase(g, uid);
+      if (built.error) return send(res, 400, { error: built.error });
+      const sess = await paypalCheckout({
+        ...built,
+        successUrl: `${base}/app?pay=paypal`,   // PayPal appends &token=<orderId>
+        cancelUrl: `${base}/app?pay=cancel`,
+      });
+      return send(res, 200, { url: sess.url, id: sess.id });
+    } catch (e) {
+      return send(res, 502, { error: e.message || "Could not start PayPal checkout" });
+    }
+  }
+  //    POST /api/paypal/capture — capture an APPROVED order after the payer
+  //    returns, then fulfil it idempotently. Body: { orderID }.
+  if (req.url?.startsWith("/api/paypal/capture") && req.method === "POST") {
+    if (!db) return send(res, 503, { error: "Database not configured" });
+    const uid = db.verifyToken(bearer(req));
+    if (!uid) return send(res, 401, { error: "Not authenticated" });
+    if (!paypalConfigured()) return send(res, 503, { error: "PayPal is not configured" });
+    const body = await readBody(req);
+    let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
+    const orderId = String(d.orderID || d.token || "").trim();
+    if (!orderId) return send(res, 400, { error: "Missing orderID" });
+    let claimed = false;
+    try {
+      // Read the order first so we can trust OUR metadata (uid, kind) over anything
+      // the client sends, and confirm this order belongs to the caller.
+      const order = await paypalGetOrder(orderId);
+      const m = paypalOrderMeta(order);
+      if (Number(m.uid) !== Number(uid)) return send(res, 403, { error: "Order does not belong to you" });
+      claimed = await db.recordFreemiusEvent(`pp_${orderId}`); // reuse the dedup table
+      if (!claimed) return send(res, 200, { ok: true, duplicate: true });
+      const cap = await paypalCapture(orderId);
+      if (!cap.paid) { await db.unrecordFreemiusEvent(`pp_${orderId}`); return send(res, 402, { error: "Payment not completed" }); }
+      await fulfilPurchase(uid, m, orderId);
+      // Remember the vaulted payer (if any) so renewals can charge off-session.
+      if (cap.vaultId) {
+        try { await db.saveBillingProfile(uid, { customerId: cap.payerId || "", paymentMethodId: cap.vaultId, brand: "PayPal", last4: (cap.email || "").slice(0, 4) }); } catch { /* best-effort */ }
+      }
+      return send(res, 200, { ok: true });
+    } catch (e) {
+      if (claimed) await db.unrecordFreemiusEvent(`pp_${orderId}`);
+      console.error("[paypal] capture failed:", e.message);
+      return send(res, 502, { error: e.message || "Capture failed" });
+    }
+  }
+  //    POST /api/paypal/webhook — backup fulfilment path (verified signature).
+  //    Fulfils on PAYMENT.CAPTURE.COMPLETED / CHECKOUT.ORDER.APPROVED, idempotent.
+  if (req.url?.startsWith("/api/paypal/webhook") && req.method === "POST") {
+    const raw = await readBody(req);
+    const evt = await paypalVerify(req.headers, raw);
+    if (!evt) { console.warn("⚠ rejected PayPal webhook: invalid signature"); return send(res, 401, { error: "invalid signature" }); }
+    if (!db) return send(res, 503, { error: "Database not configured" });
+    const type = evt.event_type;
+    try {
+      // Resolve the order id from either event shape.
+      const r = evt.resource || {};
+      const orderId = r.supplementary_data?.related_ids?.order_id || (type === "CHECKOUT.ORDER.APPROVED" ? r.id : "") || "";
+      if (!orderId) return send(res, 200, { ok: true, ignored: type });
+      const order = await paypalGetOrder(orderId).catch(() => null);
+      if (!order) return send(res, 200, { ok: true, noorder: true });
+      const m = paypalOrderMeta(order);
+      const uid = Number(m.uid) || 0;
+      if (!uid) return send(res, 200, { ok: true, nouid: true });
+      const claimed = await db.recordFreemiusEvent(`pp_${orderId}`);
+      if (!claimed) return send(res, 200, { ok: true, duplicate: true });
+      // Capture if still approved; if already captured elsewhere just fulfil.
+      if (order.status === "APPROVED") {
+        const cap = await paypalCapture(orderId);
+        if (!cap.paid) { await db.unrecordFreemiusEvent(`pp_${orderId}`); return send(res, 200, { ok: true, unpaid: true }); }
+      }
+      await fulfilPurchase(uid, m, orderId);
+      return send(res, 200, { ok: true });
+    } catch (e) {
+      console.error("[paypal] webhook fulfil failed:", e.message);
+      return send(res, 500, { error: "fulfilment failed" });
     }
   }
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { X, ChevronDown, Check, Search, Loader2, Wallet, CreditCard, Gift, Sparkles, AlertTriangle } from "lucide-react";
 import { BUNDLES, bundlePrice, getBundle, NUMBER_RENTAL, type BundleId, type BillingCycle } from "../core/plans";
 import type { Subscription } from "../core/types";
-import { stripeReady, startCheckout } from "../services/stripe";
+import { paymentReady, startCheckout } from "../services/paypal";
 
 const C = {
   bg: "var(--dg-bg)", card: "var(--dg-card)", input: "var(--dg-input)", line: "var(--dg-line)",
@@ -549,7 +549,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <PayTab active={pay === "wallet"} onClick={() => setPay("wallet")} Icon={Wallet} title="Wallet" sub={`Balance $${walletBalance.toFixed(2)}`} />
               {(payingPlan || mode === "paidExtra") && (
-                <PayTab active={pay === "card"} onClick={() => setPay("card")} Icon={CreditCard} title="Card" sub={payingPlan ? "Renews auto" : "Pay by card"} disabled={!stripeReady()} />
+                <PayTab active={pay === "card"} onClick={() => setPay("card")} Icon={CreditCard} title="PayPal" sub={payingPlan ? "Renews auto" : "Card or balance"} disabled={!paymentReady()} />
               )}
             </div>
 
@@ -598,7 +598,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
                       display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                     }}
                   >
-                    <CreditCard size={16} /> Pay by card
+                    <CreditCard size={16} /> Pay with PayPal
                   </button>
                 </div>
               </>
