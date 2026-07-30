@@ -19,7 +19,7 @@ import {
   apiGetActivity, apiLogActivity, apiMarkActivityRead, saveToken, clearToken, getToken, isNetworkError,
   type ApiUser, type ApiWallet, type ApiSubscription, type ApiCallLog, type ApiOwnedNumber, type ApiActivityItem,
 } from "../services/api";
-import { loadStripeConfig, startCheckout } from "../services/stripe";
+import { loadPaymentConfig, startCheckout, capturePaypalReturn } from "../services/paypal";
 import { flushPushToken } from "../native";
 import {
   startCall as voiceStart, hangupCall as voiceHangup, toggleMute as voiceToggleMute,
@@ -520,11 +520,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (e) { showToast(e instanceof Error ? e.message : "Couldn't send email", "error"); }
   }, [showToast]);
 
-  // Preload Stripe availability once so the checkout UIs know whether card
-  // payments are ready. Also: if we're returning from a Stripe Checkout
-  // (?pay=success), the webhook has fulfilled server-side — refresh + confirm.
+  // Preload PayPal availability once so the checkout UIs know whether card
+  // payments are ready. Also: if we're returning from a PayPal approval
+  // (?pay=paypal&token=…), capture + fulfil server-side, then refresh + confirm.
   useEffect(() => {
-    loadStripeConfig();
+    loadPaymentConfig();
+    capturePaypalReturn().then((r) => {
+      if (r === "paid") { showToast("Payment received — updating your account…"); syncBillingSoon(); }
+      else if (r === "cancelled") showToast("Payment cancelled", "error");
+    }).catch(() => {});
     try {
       const q = new URLSearchParams(window.location.search);
       if (q.get("pay") === "success") {
