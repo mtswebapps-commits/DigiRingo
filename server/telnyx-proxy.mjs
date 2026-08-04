@@ -1164,28 +1164,38 @@ createServer(async (req, res) => {
   //    returns, then fulfil it idempotently. Body: { orderID }.
   if (req.url?.startsWith("/api/paypal/capture") && req.method === "POST") {
     if (!db) return send(res, 503, { error: "Database not configured" });
-    const uid = db.verifyToken(bearer(req));
-    if (!uid) return send(res, 401, { error: "Not authenticated" });
     if (!paypalConfigured()) return send(res, 503, { error: "PayPal is not configured" });
     const body = await readBody(req);
     let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
     const orderId = String(d.orderID || d.token || "").trim();
     if (!orderId) return send(res, 400, { error: "Missing orderID" });
+    // The caller's bearer token is OPTIONAL here. After a PayPal redirect the
+    // native (Capacitor) app lands back on the https://digiringo.com WEB origin —
+    // NOT its https://localhost shell — so the token it stored under localhost is
+    // gone and would 401. Instead we trust the uid we baked into the order's
+    // custom_id at creation (set server-side from the authenticated creator). The
+    // orderId itself is the capability: PayPal only hands it to the payer who
+    // approved it, funds ALWAYS credit the order's own uid, and pp_<orderId> dedups
+    // — so completing it without a token can't misdirect or double-charge.
+    const callerUid = db.verifyToken(bearer(req)); // may be null on the native web-return
     let claimed = false;
     try {
-      // Read the order first so we can trust OUR metadata (uid, kind) over anything
-      // the client sends, and confirm this order belongs to the caller.
+      // Read the order first so we trust OUR metadata (uid, kind) over anything the
+      // client sends.
       const order = await paypalGetOrder(orderId);
       const m = paypalOrderMeta(order);
-      if (Number(m.uid) !== Number(uid)) return send(res, 403, { error: "Order does not belong to you" });
+      const orderUid = Number(m.uid) || 0;
+      if (!orderUid) return send(res, 400, { error: "Order has no owner" });
+      // If a token WAS supplied (normal web flow) it must match the order's owner.
+      if (callerUid && Number(callerUid) !== orderUid) return send(res, 403, { error: "Order does not belong to you" });
       claimed = await db.recordFreemiusEvent(`pp_${orderId}`); // reuse the dedup table
       if (!claimed) return send(res, 200, { ok: true, duplicate: true });
       const cap = await paypalCapture(orderId);
       if (!cap.paid) { await db.unrecordFreemiusEvent(`pp_${orderId}`); return send(res, 402, { error: "Payment not completed" }); }
-      await fulfilPurchase(uid, m, orderId);
+      await fulfilPurchase(orderUid, m, orderId);
       // Remember the vaulted payer (if any) so renewals can charge off-session.
       if (cap.vaultId) {
-        try { await db.saveBillingProfile(uid, { customerId: cap.payerId || "", paymentMethodId: cap.vaultId, brand: "PayPal", last4: (cap.email || "").slice(0, 4) }); } catch { /* best-effort */ }
+        try { await db.saveBillingProfile(orderUid, { customerId: cap.payerId || "", paymentMethodId: cap.vaultId, brand: "PayPal", last4: (cap.email || "").slice(0, 4) }); } catch { /* best-effort */ }
       }
       return send(res, 200, { ok: true });
     } catch (e) {
