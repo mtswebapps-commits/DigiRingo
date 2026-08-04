@@ -111,6 +111,13 @@ export async function createCheckoutSession({ lineItems, metadata, successUrl, c
       brand_name: "DIGIRINGO",
       user_action: "PAY_NOW",
       shipping_preference: "NO_SHIPPING",
+      // "BILLING" lands the payer on PayPal's card-entry (guest) form so people
+      // WITHOUT a PayPal account can pay by debit/credit card. (The newer
+      // "GUEST_CHECKOUT" enum is rejected 400 by this account — verified live —
+      // so we use the classic "BILLING" value.) Whether the card form actually
+      // appears also depends on "PayPal Account Optional / guest checkout" being
+      // enabled on the merchant account.
+      landing_page: "BILLING",
       return_url: successUrl,
       cancel_url: cancelUrl,
     },
