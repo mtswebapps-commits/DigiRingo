@@ -71,6 +71,7 @@ type AnyCall = {
   hangup: () => void;
   muteAudio: () => void;
   unmuteAudio: () => void;
+  dtmf: (digit: string) => void;
   peer?: { instance?: RTCPeerConnection };
 };
 let client: InstanceType<typeof TelnyxRTC> | null = null;
@@ -463,6 +464,17 @@ export function toggleMute(): boolean {
   try { if (live && call) { next ? call.muteAudio() : call.unmuteAudio(); } } catch { /* ignore */ }
   emit({ muted: next });
   return next;
+}
+
+/**
+ * Send a DTMF tone during an active call (IVR menus: "press 1 for support").
+ * Telnyx WebRTC's Call exposes `.dtmf(digit)` which sends RFC-2833 tones inband.
+ * Accepts a single 0-9, *, # or A-D character. No-op in mock mode.
+ */
+export function sendDtmf(digit: string): void {
+  const d = String(digit).trim();
+  if (!/^[0-9*#A-Da-d]$/.test(d)) return;
+  try { if (live && call) call.dtmf(d.toUpperCase()); } catch { /* ignore */ }
 }
 
 /** Dismiss the ended/failed overlay. */

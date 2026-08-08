@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { Mic, MicOff, PhoneOff, Phone, Volume2, X } from "lucide-react";
+import { Mic, MicOff, PhoneOff, Phone, Volume2, X, Grid3x3 } from "lucide-react";
 import { font } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import { startRingtone, stopRingtone } from "../services/ringtone";
@@ -12,8 +12,17 @@ import { isNativeRinging, type CallQuality } from "../services/voice";
  * is in progress. The actual audio plays through the hidden <audio> at the root.
  */
 export function InCallScreen({ desktop }: { desktop?: boolean }) {
-  const { activeCall, answerCall, hangupCall, toggleCallMute, dismissCall } = useApp();
+  const { activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, dismissCall } = useApp();
   const [now, setNow] = useState(Date.now());
+  const [showKeypad, setShowKeypad] = useState(false);
+  const [dialed, setDialed] = useState("");
+
+  // Reset the keypad whenever a call ends / a new one starts.
+  useEffect(() => {
+    if (activeCall?.phase !== "active") { setShowKeypad(false); setDialed(""); }
+  }, [activeCall?.phase]);
+
+  const pressKey = (d: string) => { sendDtmf(d); setDialed((v) => (v + d).slice(-32)); };
 
   // Tick every second so the call timer updates while active.
   useEffect(() => {
@@ -135,12 +144,22 @@ export function InCallScreen({ desktop }: { desktop?: boolean }) {
             <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: 600 }}>Accept</span>
           </div>
         </div>
+      ) : showKeypad && phase === "active" ? (
+        <Keypad
+          dialed={dialed}
+          onKey={pressKey}
+          onHide={() => setShowKeypad(false)}
+          onHangup={hangupCall}
+        />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 26, width: "100%" }}>
           {/* secondary controls */}
-          <div style={{ display: "flex", gap: 34, justifyContent: "center" }}>
+          <div style={{ display: "flex", gap: 30, justifyContent: "center" }}>
             <CircleBtn label={muted ? "Unmute" : "Mute"} active={muted} onClick={toggleCallMute}>
               {muted ? <MicOff size={24} color="#0b1226" /> : <Mic size={24} color="#fff" />}
+            </CircleBtn>
+            <CircleBtn label="Keypad" active={false} onClick={() => setShowKeypad(true)} disabled={phase !== "active"}>
+              <Grid3x3 size={24} color="#fff" />
             </CircleBtn>
             <CircleBtn label="Speaker" active={false} onClick={() => {}}>
               <Volume2 size={24} color="#fff" />
@@ -199,17 +218,61 @@ function QualityPill({ quality }: { quality: CallQuality }) {
   );
 }
 
-function CircleBtn({ children, label, active, onClick }: { children: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+function CircleBtn({ children, label, active, onClick, disabled }: { children: React.ReactNode; label: string; active: boolean; onClick: () => void; disabled?: boolean }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-      <button onClick={onClick} style={{
-        width: 62, height: 62, borderRadius: "50%", cursor: "pointer",
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, opacity: disabled ? 0.4 : 1 }}>
+      <button onClick={onClick} disabled={disabled} style={{
+        width: 62, height: 62, borderRadius: "50%", cursor: disabled ? "default" : "pointer",
         background: active ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.14)", border: "none",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         {children}
       </button>
       <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 11.5, fontWeight: 600 }}>{label}</span>
+    </div>
+  );
+}
+
+const DTMF_KEYS: Array<{ d: string; sub?: string }> = [
+  { d: "1" }, { d: "2", sub: "ABC" }, { d: "3", sub: "DEF" },
+  { d: "4", sub: "GHI" }, { d: "5", sub: "JKL" }, { d: "6", sub: "MNO" },
+  { d: "7", sub: "PQRS" }, { d: "8", sub: "TUV" }, { d: "9", sub: "WXYZ" },
+  { d: "*" }, { d: "0", sub: "+" }, { d: "#" },
+];
+
+/** In-call DTMF keypad — send tones through IVR menus ("press 1 for support"). */
+function Keypad({ dialed, onKey, onHide, onHangup }: {
+  dialed: string; onKey: (d: string) => void; onHide: () => void; onHangup: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18, width: "100%" }}>
+      {/* echo of the tones sent this call */}
+      <div style={{
+        minHeight: 30, width: "100%", textAlign: "center", color: "#fff", fontSize: 24,
+        fontWeight: 700, fontFamily: font.mono, letterSpacing: 3, wordBreak: "break-all",
+      }}>{dialed || " "}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, justifyItems: "center" }}>
+        {DTMF_KEYS.map((k) => (
+          <button key={k.d} onClick={() => onKey(k.d)} style={{
+            width: 66, height: 66, borderRadius: "50%", background: "rgba(255,255,255,0.14)", border: "none",
+            cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1,
+            fontFamily: font.sans,
+          }}>
+            <span style={{ color: "#fff", fontSize: 26, fontWeight: 600, lineHeight: 1 }}>{k.d}</span>
+            {k.sub && <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 9, fontWeight: 700, letterSpacing: 1 }}>{k.sub}</span>}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 40, alignItems: "center", marginTop: 4 }}>
+        <button onClick={onHangup} title="Hang up" style={{
+          width: 66, height: 66, borderRadius: "50%", background: "#ef4444", border: "none", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 10px 32px rgba(239,68,68,0.5)",
+        }}><PhoneOff size={26} color="#fff" /></button>
+        <button onClick={onHide} style={{
+          padding: "12px 26px", borderRadius: 14, border: "none", cursor: "pointer",
+          background: "rgba(255,255,255,0.14)", color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: font.sans,
+        }}>Hide</button>
+      </div>
     </div>
   );
 }

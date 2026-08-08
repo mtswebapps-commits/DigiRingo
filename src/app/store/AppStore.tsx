@@ -22,7 +22,7 @@ import {
 import { loadPaymentConfig, startCheckout, capturePaypalReturn } from "../services/paypal";
 import { flushPushToken } from "../native";
 import {
-  startCall as voiceStart, hangupCall as voiceHangup, toggleMute as voiceToggleMute,
+  startCall as voiceStart, hangupCall as voiceHangup, toggleMute as voiceToggleMute, sendDtmf as voiceSendDtmf,
   answerCall as voiceAnswer, register as voiceRegister, unregister as voiceUnregister,
   subscribeCall, clearCall as voiceClear, type CallSnapshot,
 } from "../services/voice";
@@ -334,6 +334,8 @@ interface Store {
   answerCall: () => void;
   hangupCall: () => void;
   toggleCallMute: () => void;
+  /** Send a DTMF tone during an active call (IVR keypad). */
+  sendDtmf: (digit: string) => void;
   /** Dismiss the ended/failed in-call overlay. */
   dismissCall: () => void;
   // profile & preferences
@@ -804,6 +806,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const answerCall = useCallback(() => { voiceAnswer(); }, []);
   const hangupCall = useCallback(() => { voiceHangup(); }, []);
   const toggleCallMute = useCallback(() => { voiceToggleMute(); }, []);
+  const sendDtmf = useCallback((digit: string) => { voiceSendDtmf(digit); }, []);
   const dismissCall = useCallback(() => { voiceClear(); setActiveCall(null); }, []);
 
   const addBalance: Store["addBalance"] = useCallback((amount) => {
@@ -1071,7 +1074,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login, logout, selectNumber, registerNumber, registerBrand, updateSettings,
       getNumberRequirements, submitNumberDoc, markNumberVerified,
       telnyxMode: telnyx.mode,
-      sendMessage, startConversation, markRead, placeCall, activeCall, answerCall, hangupCall, toggleCallMute, dismissCall, addBalance, setWallet, refreshWallet, syncBillingSoon, buyNumber, releaseNumber, subscribe, subscribeAndBuy, subscribeByCardAndBuy, setAutoRenew, cancelSubscription, resendVerification, refreshUser, refreshSubscription, searchNumbers, readAllActivity,
+      sendMessage, startConversation, markRead, placeCall, activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, dismissCall, addBalance, setWallet, refreshWallet, syncBillingSoon, buyNumber, releaseNumber, subscribe, subscribeAndBuy, subscribeByCardAndBuy, setAutoRenew, cancelSubscription, resendVerification, refreshUser, refreshSubscription, searchNumbers, readAllActivity,
       updateUser, togglePref, block, unblock,
     }}>
       {children}
