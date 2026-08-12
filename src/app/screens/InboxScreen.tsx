@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type CSSProperties } from "react";
-import { ArrowLeft, Send as SendIcon, Phone, ChevronDown, Check, ShieldAlert, Inbox as InboxIcon } from "lucide-react";
+import { ArrowLeft, Send as SendIcon, Phone, ChevronDown, Check, ShieldAlert, Inbox as InboxIcon, SquarePen, X } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
 
@@ -8,10 +8,13 @@ import { useApp } from "../store/AppStore";
  * (the "inbox"). A switcher lets the user jump between their numbers' inboxes.
  */
 export function InboxScreen() {
-  const { state, selectNumber, sendMessage, markRead } = useApp();
+  const { state, selectNumber, sendMessage, markRead, startConversation } = useApp();
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [composing, setComposing] = useState(false);
+  const [toInput, setToInput] = useState("");
+  const [bodyInput, setBodyInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const activeNumber = state.numbers.find((n) => n.id === state.activeNumberId) ?? state.numbers[0];
@@ -31,6 +34,18 @@ export function InboxScreen() {
   const send = () => {
     if (!draft.trim() || !activeConvoId) return;
     if (sendMessage(activeConvoId, draft.trim())) setDraft("");
+  };
+
+  const openCompose = () => { setToInput(""); setBodyInput(""); setComposing(true); };
+  const submitCompose = () => {
+    if (!toInput.trim() || !bodyInput.trim()) return;
+    const r = startConversation(toInput.trim(), bodyInput.trim());
+    if (r.ok && r.convoId) {
+      setComposing(false);
+      setToInput(""); setBodyInput("");
+      openConvo(r.convoId); // jump straight into the new thread
+    }
+    // On failure startConversation already surfaces a toast; keep the panel open.
   };
 
   /* ---------- Chat view ---------- */
@@ -149,6 +164,63 @@ export function InboxScreen() {
           </div>
         )}
       </div>
+
+      {/* New-message FAB */}
+      <button onClick={openCompose} title="New message" style={{
+        position: "fixed", bottom: 98, right: "calc(50% - 195px + 16px)", width: 58, height: 58, borderRadius: "50%",
+        background: gradients.brand, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+        boxShadow: "0 6px 24px rgba(124,92,255,0.45)", zIndex: 20,
+      }}>
+        <SquarePen size={23} color="#fff" />
+      </button>
+
+      {/* Compose a new message */}
+      {composing && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 90, background: C.bg, display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "16px 16px 14px", background: C.card, borderBottom: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <button onClick={() => setComposing(false)} style={iconBtn}><X size={17} color={C.text} /></button>
+            <p style={{ color: C.text, fontSize: 16, fontWeight: 800, flex: 1 }}>New message</p>
+          </div>
+
+          <div style={{ padding: "16px 16px 0", display: "flex", flexDirection: "column", gap: 14, flex: 1, overflowY: "auto" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.muted, fontSize: 12.5 }}>
+              <span style={{ fontWeight: 700, color: C.faint }}>From</span>
+              <span style={{ fontFamily: font.mono, color: C.text }}>{activeNumber?.settings.label || activeNumber?.number || "—"}</span>
+              {activeNumber && activeNumber.verification !== "verified" && (
+                <span style={{ color: C.amber, fontSize: 11, fontWeight: 700 }}>· not registered</span>
+              )}
+            </div>
+            <div>
+              <label style={{ color: C.faint, fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>To</label>
+              <input
+                value={toInput} onChange={(e) => setToInput(e.target.value)} inputMode="tel"
+                placeholder="+1 555 123 4567"
+                style={{ width: "100%", marginTop: 6, padding: "12px 14px", background: C.input, border: `1px solid ${C.line}`, borderRadius: radius.md, color: C.text, fontSize: 14, outline: "none", fontFamily: font.mono, boxSizing: "border-box" }}
+              />
+            </div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <label style={{ color: C.faint, fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>Message</label>
+              <textarea
+                value={bodyInput} onChange={(e) => setBodyInput(e.target.value)} rows={5}
+                placeholder="Type your message…"
+                style={{ width: "100%", marginTop: 6, padding: "12px 14px", background: C.input, border: `1px solid ${C.line}`, borderRadius: radius.md, color: C.text, fontSize: 14, outline: "none", fontFamily: font.sans, resize: "none", boxSizing: "border-box" }}
+              />
+            </div>
+          </div>
+
+          <div style={{ padding: "12px 16px 22px", background: C.card, borderTop: `1px solid ${C.lineSoft}`, flexShrink: 0 }}>
+            <button onClick={submitCompose} disabled={!toInput.trim() || !bodyInput.trim()} style={{
+              width: "100%", padding: "14px", borderRadius: radius.xl, border: "none",
+              background: (!toInput.trim() || !bodyInput.trim()) ? "rgba(255,255,255,0.08)" : gradients.brand,
+              color: (!toInput.trim() || !bodyInput.trim()) ? C.faint : "#fff", fontSize: 15, fontWeight: 800,
+              cursor: (!toInput.trim() || !bodyInput.trim()) ? "default" : "pointer", fontFamily: font.sans,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}>
+              <SendIcon size={16} /> Send message
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Inboxes switcher drawer */}
       {showSwitcher && (
