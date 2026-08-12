@@ -119,7 +119,7 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
               </div>
             ) : (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-                <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>You're on <b style={{ color: C.text }}>pay-as-you-go</b>. Pick a plan for included minutes, SMS and a free number.</p>
+                <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>You're on <b style={{ color: C.text }}>pay-as-you-go</b>. Pick a plan for included minutes &amp; SMS.</p>
                 <button style={{ ...primaryBtn, flexShrink: 0 }} onClick={() => go("plans")}>Choose a plan <ArrowRight size={15} /></button>
               </div>
             )}
@@ -184,9 +184,9 @@ export function DashNumbers({ onBuyNumber, onOpenSettings, onOpenInbox }: { onBu
   const [releasing, setReleasing] = useState(false);
   const confirmNum = nums.find((n) => n.id === confirmId);
   return (
-    <Panel title={`Your numbers (${nums.length})`} sub="Every number belongs to a plan — the first is free" action={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={16} /> New number</button>} bodyPad={nums.length ? 8 : 0}>
+    <Panel title={`Your numbers (${nums.length})`} sub="Every number belongs to a plan — $2.99/mo each" action={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={16} /> New number</button>} bodyPad={nums.length ? 8 : 0}>
       {nums.length === 0 ? (
-        <Empty icon="📱" title="No numbers yet" hint="Get your first number — it's free with any plan." cta={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={15} /> Get a number</button>} />
+        <Empty icon="📱" title="No numbers yet" hint="Get your first number — $2.99/mo with any plan." cta={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={15} /> Get a number</button>} />
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>

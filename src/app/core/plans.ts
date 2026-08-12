@@ -47,7 +47,7 @@ export const BUNDLES: Bundle[] = [
     sms: 300,
     numbersIncluded: 0,
     maxNumbers: 3,
-    perks: ["1 number FREE (add up to 3)", "300 minutes / mo", "300 SMS / mo", "Overage at pay-as-you-go rates"],
+    perks: ["Add numbers for $2.99/mo each (up to 3)", "300 minutes / mo", "300 SMS / mo", "Overage at pay-as-you-go rates"],
   },
   {
     id: "business",
@@ -62,7 +62,7 @@ export const BUNDLES: Bundle[] = [
     numbersIncluded: 0,
     maxNumbers: 5,
     featured: true,
-    perks: ["1 number FREE (add up to 5)", "1,000 minutes / mo", "1,000 SMS / mo", "Priority support"],
+    perks: ["Add numbers for $2.99/mo each (up to 5)", "1,000 minutes / mo", "1,000 SMS / mo", "Priority support"],
   },
   {
     id: "pro",
@@ -76,7 +76,7 @@ export const BUNDLES: Bundle[] = [
     sms: 3000,
     numbersIncluded: 0,
     maxNumbers: 10,
-    perks: ["1 toll-free number FREE (add up to 10)", "3,000 minutes / mo", "3,000 SMS / mo", "Priority support"],
+    perks: ["Add numbers for $2.99/mo each (up to 10)", "3,000 minutes / mo", "3,000 SMS / mo", "Priority support"],
   },
 ];
 

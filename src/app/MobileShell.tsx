@@ -88,17 +88,17 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
   // Activate a plan and claim this number free, in one flow (a number needs a plan).
   const handleSubscribeAndBuy = (n: { number: string; price: number; sms: boolean; voice: boolean }, tier: BundleId, cycle: BillingCycle) =>
     subscribeAndBuy(buildNumber(n), tier, cycle, { kind: "local" }).then((ok) => {
-      if (ok) showToast(`Plan activated · ${n.number} added free 🎁`);
+      if (ok) showToast(`Plan activated · ${n.number} added 🎉`);
     });
   const handleCardPlanAndBuy = (n: { number: string; price: number; sms: boolean; voice: boolean }, tier: BundleId, cycle: BillingCycle) =>
     subscribeByCardAndBuy(buildNumber(n), tier, cycle).then((ok) => {
-      if (ok) showToast(`Plan activated · ${n.number} added free 🎁`);
+      if (ok) showToast(`Plan activated · ${n.number} added 🎉`);
     });
 
   // Add a number to the existing plan — free (included slot) or a paid extra.
   const handleAddNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }, opts: { free?: boolean }) =>
     buyNumber(buildNumber(n), { ...opts, kind: "local" }).then((ok) => {
-      if (ok) showToast(opts.free ? `${n.number} added free with your plan 🎁` : `${n.number} added for $${NUMBER_RENTAL.local.toFixed(2)}/mo`);
+      if (ok) showToast(`${n.number} added for $${NUMBER_RENTAL.local.toFixed(2)}/mo`);
     });
 
   const openInboxFor = (id: string) => { selectNumber(id); setActiveTab("inbox"); };

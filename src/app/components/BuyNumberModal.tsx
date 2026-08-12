@@ -392,8 +392,8 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
                                 <span style={{ color: C.text, fontSize: 14, fontWeight: 800 }}>Add to your {activeBundle?.name} plan</span>
                               </div>
                               <p style={{ color: C.muted, fontSize: 12, lineHeight: 1.5 }}>
-                                Your free number is used ({activePlan!.numbersUsed}/{activePlan!.numbersMax} numbers).
-                                Extra numbers are <b style={{ color: C.text }}>${RENTAL_PRICE.toFixed(2)}/mo</b> and share your plan's minutes &amp; SMS.
+                                You're using {activePlan!.numbersUsed}/{activePlan!.numbersMax} numbers on this plan.
+                                Each number is <b style={{ color: C.text }}>${RENTAL_PRICE.toFixed(2)}/mo</b> and shares your plan's minutes &amp; SMS.
                               </p>
                               <OverflowNote />
                               <button onClick={goPay} style={{ ...primaryBtn, marginTop: 12 }}>
