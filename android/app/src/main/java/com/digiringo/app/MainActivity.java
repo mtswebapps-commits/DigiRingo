@@ -5,8 +5,11 @@ import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -139,45 +142,74 @@ public class MainActivity extends BridgeActivity {
         }
 
         // ---- In-call audio routing ----
-        // The WebView plays WebRTC audio through the media stream, which Android
-        // routes to the LOUDSPEAKER by default. For a phone call that's wrong — it
-        // should come out of the EARPIECE and only switch to speaker when the user
-        // taps the Speaker button. Putting the AudioManager in COMMUNICATION mode
-        // with speakerphone OFF gives the normal earpiece routing; setSpeaker()
-        // toggles the loudspeaker.
+        // The WebView's WebRTC audio defaults to the LOUDSPEAKER, and Chromium's
+        // audio stack actively re-asserts the speaker during call setup. For a
+        // phone call it should come out of the EARPIECE and only switch to speaker
+        // when the user taps Speaker. We put AudioManager in COMMUNICATION mode and
+        // use setCommunicationDevice() (the authoritative API on Android 12+) to
+        // pin the route, RE-ASSERTING it for the first few seconds to beat
+        // Chromium's flipping. setSpeakerphoneOn() is the fallback on older devices.
 
         private AudioManager am() {
             return (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         }
 
-        /** Call started → route to the earpiece by default. */
-        @JavascriptInterface
-        public void startCallAudio() {
+        private void applyRoute(final boolean speaker) {
             runOnUiThread(() -> { try {
                 AudioManager a = am();
-                if (a != null) { a.setMode(AudioManager.MODE_IN_COMMUNICATION); a.setSpeakerphoneOn(false); }
+                if (a == null) return;
+                if (a.getMode() != AudioManager.MODE_IN_COMMUNICATION) a.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                if (Build.VERSION.SDK_INT >= 31) {
+                    int want = speaker ? AudioDeviceInfo.TYPE_BUILTIN_SPEAKER : AudioDeviceInfo.TYPE_BUILTIN_EARPIECE;
+                    AudioDeviceInfo target = null;
+                    for (AudioDeviceInfo d : a.getAvailableCommunicationDevices()) {
+                        if (d.getType() == want) { target = d; break; }
+                    }
+                    if (target != null) a.setCommunicationDevice(target);
+                } else {
+                    a.setSpeakerphoneOn(speaker);
+                }
             } catch (Exception ignored) {} });
+        }
+
+        /** Call started → route to the earpiece, and keep re-asserting it for a few
+         *  seconds so Chromium's WebRTC audio setup can't leave it on the speaker. */
+        @JavascriptInterface
+        public void startCallAudio() {
+            speakerWanted = false;
+            applyRoute(false);
+            if (audioEnforcer != null) audioHandler.removeCallbacks(audioEnforcer);
+            final long end = System.currentTimeMillis() + 5000;
+            audioEnforcer = new Runnable() {
+                @Override public void run() {
+                    applyRoute(speakerWanted);
+                    if (System.currentTimeMillis() < end) audioHandler.postDelayed(this, 500);
+                }
+            };
+            audioHandler.postDelayed(audioEnforcer, 400);
         }
 
         /** Toggle the loudspeaker during a call. */
         @JavascriptInterface
         public void setSpeaker(final boolean on) {
-            runOnUiThread(() -> { try {
-                AudioManager a = am();
-                if (a != null) {
-                    if (a.getMode() != AudioManager.MODE_IN_COMMUNICATION) a.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                    a.setSpeakerphoneOn(on);
-                }
-            } catch (Exception ignored) {} });
+            speakerWanted = on;
+            applyRoute(on);
         }
 
-        /** Call ended → restore normal media routing. */
+        /** Call ended → release the route and restore normal media audio. */
         @JavascriptInterface
         public void stopCallAudio() {
+            if (audioEnforcer != null) audioHandler.removeCallbacks(audioEnforcer);
             runOnUiThread(() -> { try {
                 AudioManager a = am();
-                if (a != null) { a.setSpeakerphoneOn(false); a.setMode(AudioManager.MODE_NORMAL); }
+                if (a == null) return;
+                if (Build.VERSION.SDK_INT >= 31) a.clearCommunicationDevice(); else a.setSpeakerphoneOn(false);
+                a.setMode(AudioManager.MODE_NORMAL);
             } catch (Exception ignored) {} });
         }
     }
+
+    private final Handler audioHandler = new Handler(Looper.getMainLooper());
+    private volatile boolean speakerWanted = false;
+    private Runnable audioEnforcer;
 }
