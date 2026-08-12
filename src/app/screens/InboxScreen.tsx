@@ -7,7 +7,7 @@ import { useApp } from "../store/AppStore";
  * Inbox — number-wise. Conversations are scoped to the selected owned number
  * (the "inbox"). A switcher lets the user jump between their numbers' inboxes.
  */
-export function InboxScreen() {
+export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: string | null; onComposeHandled?: () => void } = {}) {
   const { state, selectNumber, sendMessage, markRead, startConversation } = useApp();
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
@@ -29,6 +29,17 @@ export function InboxScreen() {
   useEffect(() => {
     if (activeConvo) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConvo?.messages.length, activeConvo]);
+
+  // Open the compose panel pre-filled to a number (e.g. "message" from a call log).
+  useEffect(() => {
+    if (!composeTo) return;
+    setActiveConvoId(null);
+    setToInput(composeTo);
+    setBodyInput("");
+    setComposing(true);
+    onComposeHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composeTo]);
 
   const openConvo = (id: string) => { setActiveConvoId(id); markRead(id); };
 

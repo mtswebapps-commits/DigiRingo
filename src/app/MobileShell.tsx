@@ -69,6 +69,8 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
   const [activeTab, setActiveTab] = useState<Tab>("home");
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [showBuy, setShowBuy] = useState(false);
+  // A phone number to pre-fill the inbox compose with (e.g. "message" from a call).
+  const [composeTo, setComposeTo] = useState<string | null>(null);
 
   const unreadMsgs = state.conversations.reduce((s, c) => s + c.unread, 0);
   const unreadActivity = state.activity.filter((a) => !a.read).length;
@@ -110,8 +112,8 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
     switch (activeTab) {
       case "home":     return <HomeScreen onBuyNumber={() => setShowBuy(true)} onOpenInbox={() => setActiveTab("inbox")} onOpenTrust={() => setOverlay({ name: "trust" })} onTopUp={() => setOverlay({ name: "billing" })} />;
       case "numbers":  return <NumbersScreen onBuyNumber={() => setShowBuy(true)} onOpenSettings={(id) => setOverlay({ name: "numberSettings", id })} onOpenInbox={openInboxFor} />;
-      case "calls":    return <CallsScreen onOpenDialer={() => setOverlay({ name: "dialer" })} />;
-      case "inbox":    return <InboxScreen />;
+      case "calls":    return <CallsScreen onOpenDialer={() => setOverlay({ name: "dialer" })} onMessage={(num) => { setComposeTo(num); setActiveTab("inbox"); }} />;
+      case "inbox":    return <InboxScreen composeTo={composeTo} onComposeHandled={() => setComposeTo(null)} />;
       case "activity": return <ActivityScreen />;
       case "settings": return <SettingsScreen go={goSettings} />;
     }

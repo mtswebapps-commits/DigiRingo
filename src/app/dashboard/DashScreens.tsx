@@ -237,7 +237,7 @@ const rowBtn: CSSProperties = { width: 32, height: 32, borderRadius: 9, backgrou
 
 const DLR: Record<string, string> = { sending: "Sending…", sent: "Sent ✓", delivered: "Delivered ✓✓", failed: "Failed ✕" };
 
-export function DashInbox() {
+export function DashInbox({ composeTo, onComposeHandled }: { composeTo?: string | null; onComposeHandled?: () => void } = {}) {
   const { state, selectNumber, sendMessage, markRead, startConversation } = useApp();
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -245,6 +245,17 @@ export function DashInbox() {
   const [newTo, setNewTo] = useState("");
   const [newBody, setNewBody] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Open compose pre-filled to a number (e.g. "message" from the call history).
+  useEffect(() => {
+    if (!composeTo) return;
+    setActiveConvoId(null);
+    setNewTo(composeTo);
+    setNewBody("");
+    setComposing(true);
+    onComposeHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composeTo]);
 
   const activeNumber = state.numbers.find((n) => n.id === state.activeNumberId) ?? state.numbers[0];
   const inboxConvos = state.conversations.filter((c) => c.numberId === activeNumber?.id);
@@ -363,11 +374,23 @@ const DIR: Record<string, { Icon: typeof Phone; color: string }> = {
   incoming: { Icon: PhoneIncoming, color: C.green }, outgoing: { Icon: PhoneOutgoing, color: C.blue }, missed: { Icon: PhoneMissed, color: C.red },
 };
 
-export function DashCalls({ onOpenDialer }: { onOpenDialer: () => void }) {
-  const { state, placeCall } = useApp();
+export function DashCalls({ onOpenDialer, onMessage }: { onOpenDialer: () => void; onMessage: (number: string) => void }) {
+  const { state, placeCall, selectNumber } = useApp();
   const calls = state.calls;
+  const activeNumber = state.numbers.find((n) => n.id === state.activeNumberId) ?? state.numbers[0];
+  const action = (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      {state.numbers.length > 0 && (
+        <select value={activeNumber?.id ?? ""} onChange={(e) => selectNumber(e.target.value)} title="Call / text from"
+          style={{ padding: "9px 12px", borderRadius: 10, background: C.input, border: `1px solid ${C.line}`, color: C.text, fontSize: 12.5, fontWeight: 600, fontFamily: font.sans, cursor: "pointer", outline: "none" }}>
+          {state.numbers.map((n) => <option key={n.id} value={n.id}>{n.settings.icon} {n.number}</option>)}
+        </select>
+      )}
+      <button style={primaryBtn} onClick={onOpenDialer}><Phone size={15} /> Open dialer</button>
+    </div>
+  );
   return (
-    <Panel title={`Call history (${calls.length})`} action={<button style={primaryBtn} onClick={onOpenDialer}><Phone size={15} /> Open dialer</button>} bodyPad={calls.length ? 8 : 0}>
+    <Panel title={`Call history (${calls.length})`} action={action} bodyPad={calls.length ? 8 : 0}>
       {calls.length === 0 ? (
         <Empty icon="📞" title="No calls yet" hint="Your call history will appear here." cta={<button style={primaryBtn} onClick={onOpenDialer}><Phone size={15} /> Make a call</button>} />
       ) : (
@@ -383,12 +406,20 @@ export function DashCalls({ onOpenDialer }: { onOpenDialer: () => void }) {
                   <td style={{ ...td, fontVariantNumeric: "tabular-nums", color: C.muted }}>{k.duration || "—"}</td>
                   <td style={{ ...td, textAlign: "right", color: C.faint }}>{k.time}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => placeCall(k.contact)} title={`Call back ${k.contact}`} style={{
-                      width: 32, height: 32, borderRadius: 10, background: "rgba(34,197,94,0.14)", border: "none",
-                      cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      <Phone size={15} color={C.green} />
-                    </button>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <button onClick={() => onMessage(k.contact)} title={`Message ${k.contact}`} style={{
+                        width: 32, height: 32, borderRadius: 10, background: "rgba(124,92,255,0.14)", border: "none",
+                        cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        <MessageSquare size={15} color={C.blue} />
+                      </button>
+                      <button onClick={() => placeCall(k.contact)} title={`Call back ${k.contact}`} style={{
+                        width: 32, height: 32, borderRadius: 10, background: "rgba(34,197,94,0.14)", border: "none",
+                        cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        <Phone size={15} color={C.green} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ); })}

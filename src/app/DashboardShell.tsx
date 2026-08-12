@@ -69,6 +69,7 @@ export function DashboardShell() {
   const [showBuy, setShowBuy] = useState(false);
   const [showDialer, setShowDialer] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
+  const [composeTo, setComposeTo] = useState<string | null>(null);
 
   const unreadMsgs = state.conversations.reduce((s, c) => s + c.unread, 0);
   const unreadActivity = state.activity.filter((a) => !a.read).length;
@@ -112,8 +113,8 @@ export function DashboardShell() {
     switch (section) {
       case "home":     return <DashHome onBuyNumber={() => setShowBuy(true)} go={go} />;
       case "numbers":  return <DashNumbers onBuyNumber={() => setShowBuy(true)} onOpenSettings={(id) => setSub({ name: "numberSettings", id })} onOpenInbox={(id) => { selectNumber(id); go("inbox"); }} />;
-      case "inbox":    return <DashInbox />;
-      case "calls":    return <DashCalls onOpenDialer={() => setShowDialer(true)} />;
+      case "inbox":    return <DashInbox composeTo={composeTo} onComposeHandled={() => setComposeTo(null)} />;
+      case "calls":    return <DashCalls onOpenDialer={() => setShowDialer(true)} onMessage={(num) => { setComposeTo(num); go("inbox"); }} />;
       case "activity": return <DashActivity />;
       case "plans":    return <DashPlans onTopUp={() => go("wallet")} />;
       case "wallet":   return <WalletScreen onOpenTrust={() => go("trust")} desktop />;
