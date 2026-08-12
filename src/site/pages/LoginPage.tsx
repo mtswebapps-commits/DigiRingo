@@ -1,15 +1,18 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { AuthShell } from "../components/AuthShell";
 import { Link } from "../router";
+import { fetchOAuthProviders, startOAuth, type OAuthProviders } from "../../app/services/oauth";
 
 export function LoginPage() {
   const [busy, setBusy] = useState(false);
+  const [providers, setProviders] = useState<OAuthProviders>({ google: false, apple: false });
+  useEffect(() => { fetchOAuthProviders().then(setProviders); }, []);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    // Real authentication lives in the DIGIRINGO app — hand off to it.
+    // Real password auth lives in the DIGIRINGO app — hand off to it.
     window.location.href = "/app";
   };
 
@@ -19,15 +22,23 @@ export function LoginPage() {
       subtitle="Log in to manage your numbers, inbox and wallet."
       footer={<>New to DIGIRINGO? <Link to="/signup" style={{ color: "var(--blue)", fontWeight: 600 }}>Create an account</Link></>}
     >
-      <div className="dg-social">
-        <button type="button" className="dg-social-btn" onClick={() => (window.location.href = "/app")}>
-          <GoogleIcon /> Google
-        </button>
-        <button type="button" className="dg-social-btn" onClick={() => (window.location.href = "/app")}>
-          <AppleIcon /> Apple
-        </button>
-      </div>
-      <div className="dg-divider">or continue with email</div>
+      {(providers.google || providers.apple) && (
+        <>
+          <div className="dg-social">
+            {providers.google && (
+              <button type="button" className="dg-social-btn" onClick={() => startOAuth("google")}>
+                <GoogleIcon /> Google
+              </button>
+            )}
+            {providers.apple && (
+              <button type="button" className="dg-social-btn" onClick={() => startOAuth("apple")}>
+                <AppleIcon /> Apple
+              </button>
+            )}
+          </div>
+          <div className="dg-divider">or continue with email</div>
+        </>
+      )}
 
       <form onSubmit={onSubmit}>
         <div className="dg-field">

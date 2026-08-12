@@ -23,6 +23,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Social sign-in return: the OAuth callback redirects to
+                 com.digiringo.app://oauth?token=… which reopens the app; Capacitor's
+                 App plugin then fires appUrlOpen (see services/oauth.ts). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.digiringo.app" android:host="oauth" />
+            </intent-filter>
+
         </activity>
 
         <provider

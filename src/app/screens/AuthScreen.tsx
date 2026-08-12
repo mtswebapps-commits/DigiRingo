@@ -1,9 +1,11 @@
-import { useState, type ReactNode, type CSSProperties } from "react";
+import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
 import { Mail, Lock, User as UserIcon, ArrowRight } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import { apiForgotPassword } from "../services/api";
+import { fetchOAuthProviders, startOAuth, type OAuthProviders } from "../services/oauth";
 import { DgrMark } from "../components/DgrMark";
+import { SocialButtons } from "../components/SocialButtons";
 
 /** Sign up / Log in. Gates the whole app — nothing is reachable until logged in. */
 export function AuthScreen() {
@@ -15,6 +17,10 @@ export function AuthScreen() {
   const [busy, setBusy] = useState(false);
   const [forgot, setForgot] = useState(false);
   const [sent, setSent] = useState(false);
+  const [providers, setProviders] = useState<OAuthProviders>({ google: false, apple: false });
+
+  // Show a Google/Apple button only for providers the server has configured.
+  useEffect(() => { fetchOAuthProviders().then(setProviders); }, []);
 
   const forgotSubmit = async () => {
     if (busy) return;
@@ -119,6 +125,12 @@ export function AuthScreen() {
               {!busy && <ArrowRight size={17} />}
             </button>
           </form>
+
+          <SocialButtons
+            providers={providers}
+            onPick={startOAuth}
+            label={mode === "signup" ? "Sign up with" : "Continue with"}
+          />
 
           <p style={{ color: C.faint, fontSize: 11, textAlign: "center", marginTop: 18, lineHeight: 1.6 }}>
             By continuing you agree to DIGIRINGO's<br />Terms of Service and Privacy Policy.

@@ -20,6 +20,7 @@ import {
   type ApiUser, type ApiWallet, type ApiSubscription, type ApiCallLog, type ApiOwnedNumber, type ApiActivityItem,
 } from "../services/api";
 import { loadPaymentConfig, startCheckout, capturePaypalReturn } from "../services/paypal";
+import { initOAuthCapture, onOAuthResult } from "../services/oauth";
 import { flushPushToken } from "../native";
 import {
   startCall as voiceStart, hangupCall as voiceHangup, toggleMute as voiceToggleMute, sendDtmf as voiceSendDtmf,
@@ -308,6 +309,8 @@ interface Store {
   showToast: (message: string, type?: "success" | "error") => void;
   // auth
   login: (email: string, password: string, name?: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Sign in with a session token minted by the OAuth callback (Google/Apple). */
+  loginWithToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   // numbers / inboxes
   selectNumber: (id: string) => void;
@@ -472,6 +475,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [mockLogin, applySub]);
 
+  // OAuth sign-in: the server already verified the provider and minted our token —
+  // save it and hydrate the session exactly like a password login.
+  const loginWithToken: Store["loginWithToken"] = useCallback(async (token) => {
+    if (!token) return { ok: false, error: "No sign-in token" };
+    try {
+      saveToken(token);
+      flushPushToken();
+      dispatch({ t: "LOGIN", user: toAppUser(await apiMe()) });
+      try {
+        const w = await apiWallet();
+        dispatch({ t: "SET_WALLET", balance: w.balance, txns: toAppTxns(w) });
+      } catch { /* wallet load is non-fatal */ }
+      try {
+        const { subscription } = await apiGetSubscription();
+        applySub(toAppSub(subscription));
+      } catch { /* subscription load is non-fatal */ }
+      return { ok: true };
+    } catch (e) {
+      clearToken(); // a bad/rejected token must not leave a half-open session
+      if (isNetworkError(e)) return { ok: false, error: "Can't reach the server — check your connection." };
+      return { ok: false, error: e instanceof Error ? e.message : "Sign-in failed" };
+    }
+  }, [applySub]);
+
   const logout = useCallback(() => {
     // Reset the per-user refs too, or the next account inherits this one's
     // "already seen" inbox state (its new SMS chimes would be suppressed) and
@@ -574,6 +601,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, [applySub]);
+
+  // Social sign-in return: the OAuth callback hands back a token (web via URL hash,
+  // native via the com.digiringo.app://oauth deep link). Capture it once and log in.
+  useEffect(() => {
+    initOAuthCapture();
+    const off = onOAuthResult(async ({ token, error }) => {
+      if (token) {
+        const r = await loginWithToken(token);
+        if (r.ok) showToast("Signed in ✓");
+        else showToast(r.error || "Sign-in failed", "error");
+      } else if (error) {
+        showToast(error, "error");
+      }
+    });
+    return off;
+  }, [loginWithToken, showToast]);
+
   const selectNumber = useCallback((id: string) => dispatch({ t: "SELECT_NUMBER", id }), []);
 
   // Load workspace data from Telnyx once per login (numbers, balance, brand).
@@ -1078,7 +1122,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{
       state, toasts, showToast,
-      login, logout, selectNumber, registerNumber, registerBrand, updateSettings,
+      login, loginWithToken, logout, selectNumber, registerNumber, registerBrand, updateSettings,
       getNumberRequirements, submitNumberDoc, markNumberVerified,
       telnyxMode: telnyx.mode,
       sendMessage, startConversation, markRead, placeCall, activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, toggleCallHold, toggleSpeaker, dismissCall, addBalance, setWallet, refreshWallet, syncBillingSoon, buyNumber, releaseNumber, subscribe, subscribeAndBuy, subscribeByCardAndBuy, setAutoRenew, cancelSubscription, resendVerification, refreshUser, refreshSubscription, searchNumbers, readAllActivity,

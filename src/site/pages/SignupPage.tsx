@@ -1,11 +1,14 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { User, Mail, Lock, ArrowRight, Check } from "lucide-react";
 import { AuthShell } from "../components/AuthShell";
 import { Link } from "../router";
+import { fetchOAuthProviders, startOAuth, type OAuthProviders } from "../../app/services/oauth";
 
 export function SignupPage() {
   const [busy, setBusy] = useState(false);
   const [agree, setAgree] = useState(true);
+  const [providers, setProviders] = useState<OAuthProviders>({ google: false, apple: false });
+  useEffect(() => { fetchOAuthProviders().then(setProviders); }, []);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -20,15 +23,23 @@ export function SignupPage() {
       subtitle="Get your first local number in under a minute."
       footer={<>Already have an account? <Link to="/login" style={{ color: "var(--blue)", fontWeight: 600 }}>Log in</Link></>}
     >
-      <div className="dg-social">
-        <button type="button" className="dg-social-btn" onClick={() => (window.location.href = "/app")}>
-          <GoogleIcon /> Google
-        </button>
-        <button type="button" className="dg-social-btn" onClick={() => (window.location.href = "/app")}>
-          <AppleIcon /> Apple
-        </button>
-      </div>
-      <div className="dg-divider">or sign up with email</div>
+      {(providers.google || providers.apple) && (
+        <>
+          <div className="dg-social">
+            {providers.google && (
+              <button type="button" className="dg-social-btn" onClick={() => startOAuth("google")}>
+                <GoogleIcon /> Google
+              </button>
+            )}
+            {providers.apple && (
+              <button type="button" className="dg-social-btn" onClick={() => startOAuth("apple")}>
+                <AppleIcon /> Apple
+              </button>
+            )}
+          </div>
+          <div className="dg-divider">or sign up with email</div>
+        </>
+      )}
 
       <form onSubmit={onSubmit}>
         <div className="dg-field">
