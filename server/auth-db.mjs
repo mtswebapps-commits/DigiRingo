@@ -173,6 +173,70 @@ export async function getUser(uid) {
   return publicUser(rows[0]);
 }
 
+/* ------------------------------------------------ social sign-in (Google/Apple)
+ * The users table predates OAuth. Add the provider columns on first use — the
+ * hosts block the shell, so DDL is self-applied (like sip_devices). MySQL has no
+ * ADD COLUMN IF NOT EXISTS, so each ALTER is tried and "duplicate column" (errno
+ * 1060) is swallowed. */
+let oauthColsReady = false;
+async function ensureOAuthColumns() {
+  if (oauthColsReady) return;
+  const add = async (sql) => { try { await pool.query(sql); } catch (e) { if (e?.errno !== 1060) throw e; } };
+  await add("ALTER TABLE users ADD COLUMN provider VARCHAR(16) NOT NULL DEFAULT ''");
+  await add("ALTER TABLE users ADD COLUMN provider_id VARCHAR(255) NOT NULL DEFAULT ''");
+  // OAuth-only accounts carry no password — make the column nullable if it isn't.
+  try { await pool.query("ALTER TABLE users MODIFY COLUMN password_hash VARCHAR(255) NULL"); } catch { /* already nullable / different type — non-fatal */ }
+  oauthColsReady = true;
+}
+
+/**
+ * Find-or-create a user from a verified OAuth profile, then issue a session.
+ *   1) match on (provider, provider_id) — the stable account link;
+ *   2) else match on email and LINK this provider onto that existing account;
+ *   3) else create a fresh, already-verified, password-less account.
+ * Returns { token, user } exactly like loginUser.
+ */
+export async function upsertOAuthUser({ provider, providerId, email, name }) {
+  await ensureOAuthColumns();
+  provider = String(provider || "").slice(0, 16);
+  providerId = String(providerId || "");
+  email = String(email || "").trim().toLowerCase();
+  if (!provider || !providerId) throw httpErr(400, "Incomplete sign-in profile");
+
+  // 1) existing provider link
+  let [rows] = await pool.query(
+    "SELECT * FROM users WHERE provider = ? AND provider_id = ? LIMIT 1", [provider, providerId]
+  );
+  let u = rows[0];
+
+  // 2) link this provider onto an account that already owns the email
+  if (!u && email) {
+    [rows] = await pool.query("SELECT * FROM users WHERE email = ? LIMIT 1", [email]);
+    u = rows[0];
+    if (u) {
+      await pool.query(
+        "UPDATE users SET provider = ?, provider_id = ?, email_verified = 1 WHERE id = ?",
+        [provider, providerId, u.id]
+      );
+    }
+  }
+
+  // 3) brand-new verified account (no password)
+  if (!u) {
+    if (!email) throw httpErr(400, "This sign-in did not share an email address");
+    const [r] = await pool.query(
+      "INSERT INTO users (email, password_hash, name, provider, provider_id, email_verified) VALUES (?, NULL, ?, ?, ?, 1)",
+      [email, String(name || "").trim(), provider, providerId]
+    );
+    [rows] = await pool.query("SELECT * FROM users WHERE id = ?", [r.insertId]);
+    u = rows[0];
+  } else if (String(u.status || "active") === "suspended") {
+    throw httpErr(403, "This account has been suspended. Contact support.");
+  }
+
+  return { token: signToken(u.id), user: publicUser(u) };
+}
+
 /* ------------------------------------------------------ password reset */
 const sha256 = (s) => createHash("sha256").update(String(s)).digest("hex");
 

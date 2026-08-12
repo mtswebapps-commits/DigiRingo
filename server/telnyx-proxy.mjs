@@ -33,6 +33,7 @@ import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify,
 import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
 import * as settings from "./settings-store.mjs";
 import { sendFcmToUser, sendFcm, fcmConfigured } from "./fcm.mjs";
+import { authorizeUrl as oauthAuthorizeUrl, exchangeCode as oauthExchangeCode, providerStatus as oauthProviders, isProvider as oauthIsProvider } from "./oauth.mjs";
 
 // Resolve the app root and load env from a `.env` there (DB creds + all secrets)
 // if present — keeps the deployment self-contained and SSH-configurable.
@@ -166,7 +167,7 @@ if (!telnyxKey()) {
 /* ---- Control Hub config (Payments / Integrations / Settings) helpers ---- */
 const nowId = () => Date.now().toString(36) + createHmac("sha256", ADMIN_SECRET).update(String(process.hrtime.bigint())).digest("hex").slice(0, 5);
 // Secrets the dashboard is allowed to store (encrypted). These override the env.
-const ALLOWED_SECRETS = new Set(["TELNYX_API_KEY", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET", "PAYPAL_CLIENT_ID", "PAYPAL_SECRET", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID", "SMTP_PASS"]);
+const ALLOWED_SECRETS = new Set(["TELNYX_API_KEY", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET", "PAYPAL_CLIENT_ID", "PAYPAL_SECRET", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID", "SMTP_PASS", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "APPLE_SERVICES_ID", "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY"]);
 const PROVIDER_SECRET = { stripe: "STRIPE_SECRET_KEY", paypal: "PAYPAL_SECRET" };
 const GENERAL_DEFAULTS = { platformName: "DIGIRINGO", supportEmail: "support@digiringo.com", currency: "USD", platformFeePct: 0, payoutSchedule: "Daily", payoutDestination: "Stripe" };
 
@@ -196,6 +197,10 @@ function buildConfig() {
     cred("paypal_id", "PayPal client id", "REST app client id (public)", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_ID"),
     cred("paypal", "PayPal secret", "REST app secret", "PAYPAL_SECRET", "PAYPAL_SECRET"),
     cred("smtp", "Email (SMTP)", "Transactional / password-reset email", "SMTP_PASS", "SMTP_PASS"),
+    cred("google_id", "Google sign-in — client id", "OAuth client id (…apps.googleusercontent.com)", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_ID"),
+    cred("google_secret", "Google sign-in — secret", "OAuth client secret", "GOOGLE_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET"),
+    cred("apple_sid", "Apple sign-in — Services ID", "Apple Services ID (the client_id)", "APPLE_SERVICES_ID", "APPLE_SERVICES_ID"),
+    cred("apple_key", "Apple sign-in — key (.p8)", "Sign in with Apple private key", "APPLE_PRIVATE_KEY", "APPLE_PRIVATE_KEY"),
   ];
   const prov = settings.getJSON("providers", {});
   const stripeS = secretStatus("STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY");
@@ -227,6 +232,30 @@ const readBody = async (req) => {
   for await (const c of req) chunks.push(c);
   return chunks.length ? Buffer.concat(chunks).toString() : "";
 };
+
+/** 302 redirect (used by the OAuth start/callback flow). */
+const redirect = (res, location) => { res.writeHead(302, { Location: location }); res.end(); };
+
+/* ----------------------------------------------------------- OAuth state store
+ * A short-lived, in-memory CSRF/flow map: a random `state` we hand to the
+ * provider and validate on the callback. Also remembers whether the flow was
+ * started by the web app or the native app, so the callback knows where to send
+ * the session token back. Single-process server, so a Map is enough. */
+const oauthStates = new Map();
+const OAUTH_STATE_TTL = 10 * 60 * 1000;
+function newOAuthState(provider, flow) {
+  const state = createHmac("sha256", ADMIN_SECRET).update(`${Date.now()}:${Math.random()}:${provider}`).digest("hex");
+  oauthStates.set(state, { provider, flow, exp: Date.now() + OAUTH_STATE_TTL });
+  // Opportunistic cleanup of expired entries.
+  if (oauthStates.size > 500) for (const [k, v] of oauthStates) if (v.exp < Date.now()) oauthStates.delete(k);
+  return state;
+}
+function takeOAuthState(state) {
+  const s = oauthStates.get(state);
+  if (!s) return null;
+  oauthStates.delete(state);
+  return s.exp < Date.now() ? null : s;
+}
 
 /* --------------------------------------------------- wallet charge (in-app pay) */
 const payErr = (status, msg) => { const e = new Error(msg); e.status = status; return e; };
@@ -1524,6 +1553,66 @@ createServer(async (req, res) => {
       return send(res, 405, { error: "Method not allowed" });
     }
     return send(res, 404, { error: "Unknown support route" });
+  }
+
+  // 2b) Social sign-in (Google / Apple) — OAuth authorization-code flow. Shared by
+  // the web app and the native app; the callback hands a DIGIRINGO session token
+  // back via a URL hash (web) or a com.digiringo.app://oauth deep link (native).
+  if (req.url?.startsWith("/api/auth/providers") || /^\/api\/auth\/(google|apple)\/(start|callback)/.test(req.url || "")) {
+    try {
+      const u = new URL(req.url, `https://${req.headers.host}`);
+      const path = u.pathname;
+
+      // Which providers are live (frontend shows a button only for these).
+      if (path === "/api/auth/providers") return send(res, 200, oauthProviders());
+
+      const provider = path.split("/")[3]; // google | apple
+      const redirectUri = `https://${req.headers.host}/api/auth/${provider}/callback`;
+
+      // Kick off the flow → redirect the browser to the provider's consent page.
+      if (path.endsWith("/start")) {
+        if (!oauthIsProvider(provider)) return send(res, 404, { error: `${provider} sign-in is not configured` });
+        const flow = u.searchParams.get("flow") === "native" ? "native" : "web";
+        const state = newOAuthState(provider, flow);
+        return redirect(res, oauthAuthorizeUrl(provider, { redirectUri, state }));
+      }
+
+      // Provider redirected back with a code. Apple posts a form; Google uses query.
+      if (path.endsWith("/callback")) {
+        let code = u.searchParams.get("code");
+        let state = u.searchParams.get("state");
+        let providerErr = u.searchParams.get("error");
+        if (req.method === "POST") {
+          const form = new URLSearchParams(await readBody(req));
+          code = code || form.get("code");
+          state = state || form.get("state");
+          providerErr = providerErr || form.get("error");
+        }
+        const st = state ? takeOAuthState(state) : null;
+        const flow = st?.flow || "web";
+        const back = (params) => {
+          const qs = new URLSearchParams(params).toString();
+          return flow === "native"
+            ? redirect(res, `com.digiringo.app://oauth?${qs}`)
+            : redirect(res, `https://${req.headers.host}/app#${qs}`);
+        };
+        if (providerErr) return back({ error: providerErr });
+        if (!st || st.provider !== provider) return back({ error: "sign-in session expired, please try again" });
+        if (!code) return back({ error: "no authorization code returned" });
+        if (!db) return back({ error: "database not configured" });
+        try {
+          const profile = await oauthExchangeCode(provider, { code, redirectUri });
+          const { token } = await db.upsertOAuthUser(profile);
+          return back({ token });
+        } catch (e) {
+          console.error(`OAuth ${provider} failed:`, e.message);
+          return back({ error: e.message || "sign-in failed" });
+        }
+      }
+      return send(res, 404, { error: "Unknown auth route" });
+    } catch (e) {
+      return send(res, 500, { error: e.message });
+    }
   }
 
   // 3) Auth + wallet (DB-backed): real register/login and persistent wallet.
