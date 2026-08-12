@@ -229,7 +229,7 @@ export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: strin
 
       {/* Compose a new message */}
       {composing && (
-        <div style={{ position: "absolute", inset: 0, zIndex: 90, background: C.bg, display: "flex", flexDirection: "column" }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 90, background: C.bg, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "16px 16px 14px", background: C.card, borderBottom: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
             <button onClick={() => setComposing(false)} style={iconBtn}><X size={17} color={C.text} /></button>
             <p style={{ color: C.text, fontSize: 16, fontWeight: 800, flex: 1 }}>New message</p>
@@ -286,7 +286,7 @@ export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: strin
 
           {/* "Send from" number picker (only SMS-capable numbers can text). */}
           {showFromPicker && (
-            <div onClick={(e) => e.target === e.currentTarget && setShowFromPicker(false)} style={{ position: "absolute", inset: 0, zIndex: 95, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(5px)", display: "flex", alignItems: "flex-end" }}>
+            <div onClick={(e) => e.target === e.currentTarget && setShowFromPicker(false)} style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(5px)", display: "flex", alignItems: "flex-end" }}>
               <div style={{ width: "100%", background: C.card, borderRadius: "26px 26px 0 0", border: `1px solid ${C.line}`, maxHeight: "72%", overflowY: "auto", padding: "8px 0 24px" }}>
                 <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 6px" }}>
                   <div style={{ width: 38, height: 4, borderRadius: 2, background: C.line }} />
@@ -317,7 +317,7 @@ export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: strin
 
       {/* Inboxes switcher drawer */}
       {showSwitcher && (
-        <div onClick={(e) => e.target === e.currentTarget && setShowSwitcher(false)} style={{ position: "absolute", inset: 0, zIndex: 80, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(5px)", display: "flex", alignItems: "flex-end" }}>
+        <div onClick={(e) => e.target === e.currentTarget && setShowSwitcher(false)} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(5px)", display: "flex", alignItems: "flex-end" }}>
           <div style={{ width: "100%", background: C.card, borderRadius: "26px 26px 0 0", border: `1px solid ${C.line}`, maxHeight: "82%", overflowY: "auto", padding: "8px 0 24px" }}>
             <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 6px" }}>
               <div style={{ width: 38, height: 4, borderRadius: 2, background: C.line }} />

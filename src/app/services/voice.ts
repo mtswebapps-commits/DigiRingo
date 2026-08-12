@@ -20,6 +20,19 @@ import { API_BASE, TELNYX_MODE } from "./telnyx/config";
 const live = TELNYX_MODE === "live";
 export const REMOTE_AUDIO_ID = "dg-remote-audio";
 
+/* ---- Native (Android) in-call audio routing via window.DigiNative ----
+ * On Android the WebView routes WebRTC audio to the LOUDSPEAKER by default. The
+ * native bridge (MainActivity) puts the AudioManager in communication mode so a
+ * call comes out of the EARPIECE, and toggles the speakerphone on demand. All
+ * no-ops on the web (no bridge). */
+type DigiNative = { startCallAudio?: () => void; stopCallAudio?: () => void; setSpeaker?: (on: boolean) => void };
+const digiNative = (): DigiNative | null => {
+  try { return (window as unknown as { DigiNative?: DigiNative }).DigiNative ?? null; } catch { return null; }
+};
+const nativeStartCallAudio = () => { try { digiNative()?.startCallAudio?.(); } catch { /* no bridge */ } };
+const nativeStopCallAudio = () => { try { digiNative()?.stopCallAudio?.(); } catch { /* ignore */ } };
+const nativeSetSpeaker = (on: boolean) => { try { digiNative()?.setSpeaker?.(on); } catch { /* ignore */ } };
+
 export type CallPhase = "incoming" | "connecting" | "ringing" | "active" | "ended" | "failed";
 export type CallQuality = "excellent" | "good" | "fair" | "poor" | "unknown";
 export type CallDir = "inbound" | "outbound";
@@ -288,6 +301,7 @@ function applyState(state: string) {
       break;
     case "active":
       emit({ phase: "active", startedAt: snap.startedAt ?? Date.now() });
+      nativeStartCallAudio(); // route to the earpiece (not the loudspeaker) by default
       startStatsPolling();
       startHeartbeat();
       break;
@@ -338,6 +352,7 @@ function endCall() {
   lastStats = null;
   call = null;
   nativeCallActive = false;
+  nativeStopCallAudio(); // restore normal media audio routing
   // Remote hangup / answered-on-another-device cancels this leg → make sure the
   // native full-screen ring notification is dismissed too (answerCall/hangupCall
   // do this on local action, but a remote terminal state must clear it as well).
@@ -520,7 +535,8 @@ async function routeSpeaker(on: boolean): Promise<void> {
 export function toggleSpeaker(): boolean {
   if (!snap) return false;
   const next = !snap.speaker;
-  void routeSpeaker(next);
+  nativeSetSpeaker(next); // Android — the real earpiece↔loudspeaker switch
+  void routeSpeaker(next); // web desktop best-effort (output-device sink)
   emit({ speaker: next });
   return next;
 }

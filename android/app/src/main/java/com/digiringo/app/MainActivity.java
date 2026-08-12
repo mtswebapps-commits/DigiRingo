@@ -5,6 +5,7 @@ import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
@@ -135,6 +136,48 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public void clearCallNotification() {
             NotificationManagerCompat.from(MainActivity.this).cancel(CallMessagingService.CALL_NOTIF_ID);
+        }
+
+        // ---- In-call audio routing ----
+        // The WebView plays WebRTC audio through the media stream, which Android
+        // routes to the LOUDSPEAKER by default. For a phone call that's wrong — it
+        // should come out of the EARPIECE and only switch to speaker when the user
+        // taps the Speaker button. Putting the AudioManager in COMMUNICATION mode
+        // with speakerphone OFF gives the normal earpiece routing; setSpeaker()
+        // toggles the loudspeaker.
+
+        private AudioManager am() {
+            return (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        }
+
+        /** Call started → route to the earpiece by default. */
+        @JavascriptInterface
+        public void startCallAudio() {
+            runOnUiThread(() -> { try {
+                AudioManager a = am();
+                if (a != null) { a.setMode(AudioManager.MODE_IN_COMMUNICATION); a.setSpeakerphoneOn(false); }
+            } catch (Exception ignored) {} });
+        }
+
+        /** Toggle the loudspeaker during a call. */
+        @JavascriptInterface
+        public void setSpeaker(final boolean on) {
+            runOnUiThread(() -> { try {
+                AudioManager a = am();
+                if (a != null) {
+                    if (a.getMode() != AudioManager.MODE_IN_COMMUNICATION) a.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                    a.setSpeakerphoneOn(on);
+                }
+            } catch (Exception ignored) {} });
+        }
+
+        /** Call ended → restore normal media routing. */
+        @JavascriptInterface
+        public void stopCallAudio() {
+            runOnUiThread(() -> { try {
+                AudioManager a = am();
+                if (a != null) { a.setSpeakerphoneOn(false); a.setMode(AudioManager.MODE_NORMAL); }
+            } catch (Exception ignored) {} });
         }
     }
 }
