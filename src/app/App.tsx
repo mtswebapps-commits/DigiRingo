@@ -4,6 +4,8 @@ import { ThemeProvider } from "./core/theme-context";
 import { PhoneFrame } from "./components/PhoneFrame";
 import { PhoneGate } from "./MobileShell";
 import { DashboardShell } from "./DashboardShell";
+import { DesktopAuthScreen } from "./screens/DesktopAuthScreen";
+import { VerifyGateScreen } from "./screens/VerifyGateScreen";
 import { isNative } from "./native";
 
 /**
@@ -50,6 +52,22 @@ function Root() {
         <PhoneGate />
       </div>
     );
+  }
+
+  // Desktop / laptop web, NOT signed in → the two-panel web sign-in. (A just-signed-up
+  // user awaiting email verification gets the verify screen in a centered card.)
+  // Real phones & tablets fall through to the single-column phone experience.
+  if (!isMobileDevice()) {
+    if (state.user) {
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.shell, padding: 24, fontFamily: "'Inter', sans-serif" }}>
+          <div style={{ width: "100%", maxWidth: 460, background: C.bg, borderRadius: 24, overflow: "hidden", boxShadow: "0 40px 120px rgba(20,16,40,0.35)" }}>
+            <VerifyGateScreen />
+          </div>
+        </div>
+      );
+    }
+    return <DesktopAuthScreen />;
   }
 
   return (
