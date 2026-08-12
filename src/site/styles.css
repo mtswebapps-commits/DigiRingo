@@ -46,6 +46,7 @@
 
   --maxw: 1180px;
   --nav-h: 64px;
+  --ann-h: 40px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
   --radius: 22px;
@@ -88,6 +89,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-size: 16.5px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   letter-spacing: -0.011em;
@@ -163,9 +166,9 @@ button { font-family: inherit; cursor: pointer; }
   letter-spacing: -0.03em;
   margin: 0;
 }
-.dg-h3 { font-size: clamp(20px, 2.4vw, 27px); font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+.dg-h3 { font-size: clamp(21px, 2.5vw, 29px); font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 .dg-lead {
-  font-size: clamp(17px, 2vw, 21px);
+  font-size: clamp(18px, 2.1vw, 22px);
   line-height: 1.55;
   color: var(--muted);
   font-weight: 400;
@@ -206,10 +209,38 @@ button { font-family: inherit; cursor: pointer; }
 .dg-btn-sm { height: 40px; padding: 0 18px; font-size: 14px; }
 .dg-btn-lg { height: 54px; padding: 0 30px; font-size: 16px; }
 
+/* --- announcement bar ------------------------------------------------------ */
+/* Pinned strip above the nav; the shell pads its content to clear both bars. */
+.dg-announce {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 101;
+  height: var(--ann-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 16px;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-align: center;
+  background: linear-gradient(90deg, #2f6bff 0%, #7c5cff 48%, #ec4f9c 100%);
+}
+.dg-announce-dot { width: 7px; height: 7px; border-radius: 999px; background: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,0.28); flex-shrink: 0; }
+.dg-announce-text { opacity: 0.98; }
+.dg-announce-cta { font-weight: 800; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.dg-shell { padding-top: var(--ann-h); }
+@media (max-width: 560px) {
+  .dg-announce { font-size: 12px; gap: 7px; }
+  .dg-announce-dot { display: none; }
+}
+
 /* --- nav ------------------------------------------------------------------- */
 .dg-nav {
   position: fixed;
-  top: 0; left: 0; right: 0;
+  top: var(--ann-h); left: 0; right: 0;
   z-index: 100;
   height: var(--nav-h);
   display: flex;
@@ -226,7 +257,7 @@ button { font-family: inherit; cursor: pointer; }
 .dg-nav-inner { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
 .dg-nav-links { display: flex; align-items: center; gap: 4px; }
 .dg-nav-link {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--muted);
   padding: 8px 14px;
@@ -345,7 +376,7 @@ button { font-family: inherit; cursor: pointer; }
 .dg-price-card { display: flex; flex-direction: column; }
 .dg-price-card.feat { background: linear-gradient(180deg, rgba(124,92,255,0.12), rgba(155,111,247,0.05)); border-color: rgba(123,110,247,0.4); }
 .dg-price-amt { font-size: 50px; font-weight: 800; letter-spacing: -0.03em; }
-.dg-feat-li { display: flex; align-items: flex-start; gap: 11px; padding: 9px 0; font-size: 14.5px; color: var(--muted); }
+.dg-feat-li { display: flex; align-items: flex-start; gap: 11px; padding: 9px 0; font-size: 15.5px; color: var(--muted); }
 .dg-feat-li svg { color: var(--green); flex-shrink: 0; margin-top: 2px; }
 .dg-badge-pop { position: absolute; top: 18px; right: 18px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 11px; border-radius: 999px; background: var(--grad); color: #fff; }
 
@@ -395,12 +426,12 @@ button { font-family: inherit; cursor: pointer; }
 
 /* --- accordion (faq) ------------------------------------------------------- */
 .dg-faq-item { border-bottom: 1px solid var(--line); }
-.dg-faq-q { width: 100%; background: none; border: none; color: var(--text); text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 4px; font-size: 17px; font-weight: 600; }
+.dg-faq-q { width: 100%; background: none; border: none; color: var(--text); text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 4px; font-size: 18px; font-weight: 600; }
 .dg-faq-q .chev { transition: transform 0.3s var(--ease); color: var(--muted); flex-shrink: 0; }
 .dg-faq-item.open .chev { transform: rotate(180deg); }
 .dg-faq-a { max-height: 0; overflow: hidden; transition: max-height 0.4s var(--ease), opacity 0.3s; opacity: 0; }
 .dg-faq-item.open .dg-faq-a { max-height: 320px; opacity: 1; }
-.dg-faq-a p { color: var(--muted); font-size: 15px; line-height: 1.6; padding: 0 4px 24px; margin: 0; }
+.dg-faq-a p { color: var(--muted); font-size: 16px; line-height: 1.6; padding: 0 4px 24px; margin: 0; }
 
 /* --- footer ---------------------------------------------------------------- */
 .dg-footer { border-top: 1px solid var(--line); padding: 72px 0 40px; background: var(--bg-2); }

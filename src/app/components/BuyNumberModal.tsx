@@ -373,14 +373,14 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
                             <>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                                 <Gift size={16} color={C.green} />
-                                <span style={{ color: C.text, fontSize: 14, fontWeight: 800 }}>Free with your {activeBundle?.name} plan</span>
+                                <span style={{ color: C.text, fontSize: 14, fontWeight: 800 }}>Included with your {activeBundle?.name} plan</span>
                               </div>
                               <p style={{ color: C.muted, fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
-                                This is your included free number ({activePlan!.numbersUsed} of {activePlan!.numbersIncluded} used).
+                                This is your included number ({activePlan!.numbersUsed} of {activePlan!.numbersIncluded} used).
                                 You can hold up to {activePlan!.numbersMax} numbers on this plan.
                               </p>
                               <button disabled={busy} onClick={claimFree} style={{ ...primaryBtn, opacity: busy ? 0.7 : 1 }}>
-                                {busy ? "Adding…" : "Add this number — Free"}
+                                {busy ? "Adding…" : "Add this number — Included"}
                               </button>
                             </>
                           )}

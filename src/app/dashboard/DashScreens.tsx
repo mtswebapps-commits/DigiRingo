@@ -112,7 +112,7 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <span style={chip}><Gift size={13} color={C.green} /> {sub.numbersUsed}/{sub.numbersMax} numbers ({sub.numbersIncluded} free)</span>
+                  <span style={chip}><Gift size={13} color={C.green} /> {sub.numbersUsed}/{sub.numbersMax} numbers</span>
                   <span style={chip}>{sub.autoRenew ? "🔄 Auto-renew on" : "⏸ Auto-renew off"}</span>
                   <span style={{ ...chip, color: sub.status === "past_due" ? C.red : C.muted }}>{sub.status === "past_due" ? "⚠ Past due — top up" : `$${sub.renewAmount.toFixed(2)} / ${sub.cycle}`}</span>
                 </div>
@@ -485,7 +485,7 @@ export function DashPlans({ onTopUp }: { onTopUp: () => void }) {
                 </div>
               ))}
               <div style={{ gridColumn: "1 / -1", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <span style={chip}><Gift size={13} color={C.green} /> {sub.numbersUsed}/{sub.numbersMax} numbers used ({sub.numbersIncluded} free)</span>
+                <span style={chip}><Gift size={13} color={C.green} /> {sub.numbersUsed}/{sub.numbersMax} numbers used</span>
               </div>
             </div>
           </div>

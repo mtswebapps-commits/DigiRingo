@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { motion } from "motion/react";
 import { Link } from "../router";
+import { DgrMark } from "../../app/components/DgrMark";
 
-/** DIGIRINGO wordmark + gradient glyph. */
+/** DIGIRINGO wordmark + the brand DGR monogram (same mark as the app icon). */
 export function Logo({ size = 18 }: { size?: number }) {
   return (
     <Link to="/" className="dg-logo">
-      <span className="dg-logo-mark" aria-hidden>D</span>
+      <span className="dg-logo-mark" aria-hidden><DgrMark w={22} color="#fff" /></span>
       <span style={{ fontSize: size }}>DIGIRINGO</span>
     </Link>
   );

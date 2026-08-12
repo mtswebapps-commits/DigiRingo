@@ -76,7 +76,7 @@ export const STEPS = [
  *
  * How it works:
  *   • Every number comes with a PLAN — pick Starter, Business or Pro (monthly or
- *     annual). Each plan includes ONE free number plus a pool of minutes + SMS,
+ *     annual). Each plan includes ONE number plus a pool of minutes + SMS,
  *     and lets you add more numbers up to a cap.
  *   • When a plan's pool runs out you keep going pay-as-you-go (USAGE_RATES),
  *     funded from the wallet — and we alert you near the limit so you can upgrade.
@@ -92,7 +92,7 @@ export const PRICING = [
     cta: "Get Starter",
     featured: false,
     features: [
-      "1 number FREE (add up to 3)",
+      "1 number included (add up to 3)",
       "300 minutes / mo",
       "300 SMS / mo",
       "Overage at pay-as-you-go rates",
@@ -109,7 +109,7 @@ export const PRICING = [
     cta: "Get Business",
     featured: true, // Most popular
     features: [
-      "1 number FREE (add up to 5)",
+      "1 number included (add up to 5)",
       "1,000 minutes / mo",
       "1,000 SMS / mo",
       "Overage at pay-as-you-go rates",
@@ -126,7 +126,7 @@ export const PRICING = [
     cta: "Get Pro",
     featured: false,
     features: [
-      "1 toll-free number FREE (add up to 10)",
+      "1 toll-free number included (add up to 10)",
       "3,000 minutes / mo",
       "3,000 SMS / mo",
       "Overage at pay-as-you-go rates",
@@ -135,7 +135,7 @@ export const PRICING = [
   },
 ];
 
-/** Flat monthly rental for EXTRA numbers on a plan (the first is free). */
+/** Flat monthly rental for EXTRA numbers on a plan (the first comes with the plan). */
 export const NUMBER_RENTAL = [
   { type: "Extra local number", price: "$2.99", unit: "/mo" },
   { type: "Extra toll-free number", price: "$4.99", unit: "/mo" },
@@ -166,7 +166,7 @@ export const FAQS = [
   },
   {
     q: "How does billing work?",
-    a: "Every number comes with a plan — you pick Starter, Business or Pro (billed monthly, or annually with 2 months free). Your plan includes one number FREE plus a pool of minutes and SMS, and you can add more numbers up to the plan's limit ($2.99/mo local, $4.99/mo toll-free each). When your included minutes or SMS run out you simply keep going pay-as-you-go — voice from $0.015/min, SMS from $0.015/msg, drawn from your prepaid wallet. You can pay for a plan or an extra number straight from the wallet, or directly by card.",
+    a: "Every number comes with a plan — you pick Starter, Business or Pro (billed monthly, or annually with 2 months free). Your plan includes one number plus a pool of minutes and SMS, and you can add more numbers up to the plan's limit ($2.99/mo local, $4.99/mo toll-free each). When your included minutes or SMS run out you simply keep going pay-as-you-go — voice from $0.015/min, SMS from $0.015/msg, drawn from your prepaid wallet. You can pay for a plan or an extra number straight from the wallet, or directly by card.",
   },
   {
     q: "What happens when I hit my plan limit?",

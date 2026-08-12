@@ -1,6 +1,7 @@
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { RouterProvider, useRouter } from "./router";
 import { Nav } from "./components/Nav";
+import { AnnouncementBar } from "./components/AnnouncementBar";
 import { Footer } from "./components/Footer";
 import { HomePage } from "./pages/HomePage";
 import { FeaturesPage } from "./pages/FeaturesPage";
@@ -65,6 +66,7 @@ function Frame() {
 
   return (
     <div className="dg-shell">
+      <AnnouncementBar />
       <Nav />
       <main>
         <AnimatePresence mode="wait">
