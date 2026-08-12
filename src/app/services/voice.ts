@@ -39,6 +39,10 @@ export interface CallSnapshot {
   remainingSec: number | null;
   remainingAt: number | null;
   error?: string;
+  /** true while the call is parked on hold (Telnyx call.hold()). */
+  held?: boolean;
+  /** true when audio is routed to the loudspeaker instead of the earpiece. */
+  speaker?: boolean;
 }
 
 type Listener = (s: CallSnapshot | null) => void;
@@ -475,6 +479,50 @@ export function sendDtmf(digit: string): void {
   const d = String(digit).trim();
   if (!/^[0-9*#A-Da-d]$/.test(d)) return;
   try { if (live && call) call.dtmf(d.toUpperCase()); } catch { /* ignore */ }
+}
+
+/**
+ * Park / resume the call. Telnyx's Call exposes hold()/unhold() (SIP re-INVITE
+ * with sendonly/recvonly) — both sides hear silence until resumed. No-op in mock.
+ */
+export async function toggleHold(): Promise<boolean> {
+  if (!snap) return false;
+  const next = !snap.held;
+  try {
+    if (live && call) { next ? await call.hold() : await call.unhold(); }
+  } catch { /* ignore — keep UI in sync with the attempt */ }
+  emit({ held: next });
+  return next;
+}
+
+const anyDoc = (): Document | null => (typeof document === "undefined" ? null : document);
+
+/**
+ * Route the remote audio to the loudspeaker (on) or the default/earpiece (off).
+ * Uses the audio element's setSinkId where the browser exposes output-device
+ * selection (desktop Chromium). On a phone the OS owns earpiece↔speaker routing,
+ * so this is best-effort — the button still reflects state everywhere.
+ */
+async function routeSpeaker(on: boolean): Promise<void> {
+  const el = anyDoc()?.getElementById(REMOTE_AUDIO_ID) as
+    (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+  if (!el || typeof el.setSinkId !== "function" || !navigator?.mediaDevices?.enumerateDevices) return;
+  try {
+    const outs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audiooutput");
+    const target = on
+      ? outs.find((d) => d.deviceId !== "default" && d.deviceId !== "communications") || outs[0]
+      : outs.find((d) => d.deviceId === "default") || outs[0];
+    if (target?.deviceId) await el.setSinkId(target.deviceId);
+  } catch { /* ignore */ }
+}
+
+/** Toggle loudspeaker routing for the current call. */
+export function toggleSpeaker(): boolean {
+  if (!snap) return false;
+  const next = !snap.speaker;
+  void routeSpeaker(next);
+  emit({ speaker: next });
+  return next;
 }
 
 /** Dismiss the ended/failed overlay. */

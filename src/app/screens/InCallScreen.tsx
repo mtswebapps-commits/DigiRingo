@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { Mic, MicOff, PhoneOff, Phone, Volume2, X, Grid3x3 } from "lucide-react";
+import { Mic, MicOff, PhoneOff, Phone, Volume2, VolumeX, X, Grid3x3, Pause, Play } from "lucide-react";
 import { font } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import { startRingtone, stopRingtone } from "../services/ringtone";
@@ -12,7 +12,7 @@ import { isNativeRinging, type CallQuality } from "../services/voice";
  * is in progress. The actual audio plays through the hidden <audio> at the root.
  */
 export function InCallScreen({ desktop }: { desktop?: boolean }) {
-  const { activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, dismissCall } = useApp();
+  const { activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, toggleCallHold, toggleSpeaker, dismissCall } = useApp();
   const [now, setNow] = useState(Date.now());
   const [showKeypad, setShowKeypad] = useState(false);
   const [dialed, setDialed] = useState("");
@@ -57,7 +57,7 @@ export function InCallScreen({ desktop }: { desktop?: boolean }) {
   }, [activeCall?.phase]);
 
   if (!activeCall) return null;
-  const { phase, contact, callerNumber, muted, quality, startedAt, error, remainingSec, remainingAt } = activeCall;
+  const { phase, contact, callerNumber, muted, quality, startedAt, error, remainingSec, remainingAt, held, speaker } = activeCall;
 
   const elapsed = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
   const timer = `${Math.floor(elapsed / 60)}:${(elapsed % 60).toString().padStart(2, "0")}`;
@@ -73,7 +73,7 @@ export function InCallScreen({ desktop }: { desktop?: boolean }) {
     incoming ? "Incoming call" :
     phase === "connecting" ? "Connecting…" :
     phase === "ringing" ? "Ringing…" :
-    phase === "active" ? timer :
+    phase === "active" ? (held ? "On hold" : timer) :
     phase === "failed" ? "Call failed" : "Call ended";
 
   const ended = phase === "ended" || phase === "failed";
@@ -153,16 +153,19 @@ export function InCallScreen({ desktop }: { desktop?: boolean }) {
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 26, width: "100%" }}>
-          {/* secondary controls */}
-          <div style={{ display: "flex", gap: 30, justifyContent: "center" }}>
+          {/* secondary controls — 2×2 grid: mute · keypad · speaker · hold */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 76px)", gap: "22px 44px", justifyContent: "center" }}>
             <CircleBtn label={muted ? "Unmute" : "Mute"} active={muted} onClick={toggleCallMute}>
               {muted ? <MicOff size={24} color="#0b1226" /> : <Mic size={24} color="#fff" />}
             </CircleBtn>
             <CircleBtn label="Keypad" active={false} onClick={() => setShowKeypad(true)} disabled={phase !== "active"}>
               <Grid3x3 size={24} color="#fff" />
             </CircleBtn>
-            <CircleBtn label="Speaker" active={false} onClick={() => {}}>
-              <Volume2 size={24} color="#fff" />
+            <CircleBtn label="Speaker" active={!!speaker} onClick={toggleSpeaker} disabled={phase !== "active"}>
+              {speaker ? <Volume2 size={24} color="#0b1226" /> : <VolumeX size={24} color="#fff" />}
+            </CircleBtn>
+            <CircleBtn label={held ? "Resume" : "Hold"} active={!!held} onClick={toggleCallHold} disabled={phase !== "active"}>
+              {held ? <Play size={22} color="#0b1226" /> : <Pause size={22} color="#fff" />}
             </CircleBtn>
           </div>
           {/* hang up */}
