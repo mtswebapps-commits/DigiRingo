@@ -2019,6 +2019,20 @@ createServer(async (req, res) => {
     return send(res, 200, { ok: true });
   }
 
+  // Delete a single message (by Telnyx id) — scoped to the caller's own numbers.
+  if (req.method === "DELETE" && path.startsWith("/messaging/message")) {
+    const u = new URL(req.url, "http://x");
+    if (db && tnUid) await db.deleteMessageById(u.searchParams.get("id"), tnUid).catch(() => {});
+    return send(res, 200, { ok: true });
+  }
+
+  // Delete a whole conversation (all messages between owned ↔ contact).
+  if (req.method === "DELETE" && path.startsWith("/messaging/conversation")) {
+    const u = new URL(req.url, "http://x");
+    if (db && tnUid) await db.deleteThread(u.searchParams.get("owned"), u.searchParams.get("contact"), tnUid).catch(() => {});
+    return send(res, 200, { ok: true });
+  }
+
   // 2b) Document upload (regulatory KYC). The browser POSTs the raw file bytes
   //     (Content-Type = the file's type, ?filename=…); we wrap them in multipart
   //     form-data and forward to Telnyx /documents with the secret key injected.

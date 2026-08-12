@@ -349,6 +349,32 @@ export async function markThreadRead(owned, contact, uid) {
   );
 }
 
+/** Delete an entire conversation (all messages between owned ↔ contact). SCOPED:
+ *  only deletes if the owned number belongs to `uid`, so nobody can wipe another
+ *  user's thread. Matches on digits. */
+export async function deleteThread(owned, contact, uid) {
+  if (!uid || !owned || !contact) return;
+  await pool.query(
+    `DELETE m FROM messages m
+       JOIN numbers n ON REGEXP_REPLACE(n.e164, '[^0-9]', '') = REGEXP_REPLACE(m.owned, '[^0-9]', '')
+      WHERE n.user_id = ?
+        AND REGEXP_REPLACE(m.owned, '[^0-9]', '')   = REGEXP_REPLACE(?, '[^0-9]', '')
+        AND REGEXP_REPLACE(m.contact, '[^0-9]', '') = REGEXP_REPLACE(?, '[^0-9]', '')`,
+    [Number(uid), owned, contact]
+  );
+}
+
+/** Delete a single message by its Telnyx id. SCOPED to the caller's own numbers. */
+export async function deleteMessageById(telnyxId, uid) {
+  if (!uid || !telnyxId) return;
+  await pool.query(
+    `DELETE m FROM messages m
+       JOIN numbers n ON REGEXP_REPLACE(n.e164, '[^0-9]', '') = REGEXP_REPLACE(m.owned, '[^0-9]', '')
+      WHERE n.user_id = ? AND m.telnyx_id = ?`,
+    [Number(uid), telnyxId]
+  );
+}
+
 /** Group a user's messages into conversation threads (owned number ↔ contact).
  *  SCOPED per-user: only threads whose `owned` number belongs to `uid` are
  *  returned — a user must NEVER see another user's inbox. Matches on digits so

@@ -101,6 +101,8 @@ type Action =
   | { t: "SET_CONVERSATIONS"; conversations: Conversation[] }
   | { t: "MERGE_CONVERSATIONS"; conversations: Conversation[] }
   | { t: "ADD_CONVERSATION"; conversation: Conversation }
+  | { t: "DELETE_MESSAGE"; convoId: string; messageId: string }
+  | { t: "DELETE_CONVERSATION"; convoId: string }
   | { t: "SET_CALLS"; calls: CallLog[] }
   | { t: "MARK_READ"; convoId: string }
   | { t: "ADD_BALANCE"; amount: number }
@@ -198,6 +200,20 @@ function reducer(s: AppState, a: Action): AppState {
 
     case "ADD_CONVERSATION":
       return { ...s, conversations: [a.conversation, ...s.conversations] };
+
+    case "DELETE_MESSAGE":
+      return {
+        ...s,
+        conversations: s.conversations.map((c) => {
+          if (c.id !== a.convoId) return c;
+          const messages = c.messages.filter((m) => m.id !== a.messageId);
+          const last = messages[messages.length - 1];
+          return { ...c, messages, preview: last ? last.text : "" };
+        }),
+      };
+
+    case "DELETE_CONVERSATION":
+      return { ...s, conversations: s.conversations.filter((c) => c.id !== a.convoId) };
 
     case "SET_CALLS":
       return { ...s, calls: a.calls };
@@ -330,6 +346,10 @@ interface Store {
    *  (or reuse an existing thread for that contact), then send the first text. */
   startConversation: (contact: string, text: string) => { ok: boolean; convoId?: string };
   markRead: (convoId: string) => void;
+  /** Delete a single message from a thread (local + server). */
+  deleteMessage: (convoId: string, messageId: string) => void;
+  /** Delete a whole conversation (local + server). */
+  deleteConversation: (convoId: string) => void;
   // calls (real WebRTC softphone; see services/voice.ts)
   placeCall: (contact: string) => void;
   /** Live in-call state (null when idle). Drives the in-call overlay. */
@@ -803,6 +823,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (convo && num) telnyx.markConversationRead(toE164(num.number), toE164(convo.contact)).catch(() => {});
   }, [state.conversations, state.numbers]);
 
+  // Delete one message from a thread (local + server). SMS can't be un-sent, so
+  // this removes it from the account's own inbox view (server-persisted).
+  const deleteMessage = useCallback((convoId: string, messageId: string) => {
+    const msg = state.conversations.find((c) => c.id === convoId)?.messages.find((m) => m.id === messageId);
+    dispatch({ t: "DELETE_MESSAGE", convoId, messageId });
+    const tid = msg?.telnyxId || messageId; // server matches on telnyx_id; a synthetic id no-ops
+    if (tid) telnyx.deleteMessage(String(tid)).catch(() => {});
+  }, [state.conversations]);
+
+  // Delete an entire conversation (local + server).
+  const deleteConversation = useCallback((convoId: string) => {
+    const convo = state.conversations.find((c) => c.id === convoId);
+    const num = state.numbers.find((n) => n.id === convo?.numberId);
+    dispatch({ t: "DELETE_CONVERSATION", convoId });
+    if (convo && num) telnyx.deleteConversation(toE164(num.number), toE164(convo.contact)).catch(() => {});
+  }, [state.conversations, state.numbers]);
+
   // Real in-browser calling (outbound + inbound). `placeCall` starts a WebRTC
   // call; inbound calls arrive via the background registration. The overlay
   // reads `activeCall`; each call is logged to history once when it ends.
@@ -1128,7 +1165,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login, loginWithToken, logout, selectNumber, registerNumber, registerBrand, updateSettings,
       getNumberRequirements, submitNumberDoc, markNumberVerified,
       telnyxMode: telnyx.mode,
-      sendMessage, startConversation, markRead, placeCall, activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, toggleCallHold, toggleSpeaker, dismissCall, addBalance, setWallet, refreshWallet, syncBillingSoon, buyNumber, releaseNumber, subscribe, subscribeAndBuy, subscribeByCardAndBuy, setAutoRenew, cancelSubscription, resendVerification, refreshUser, refreshSubscription, searchNumbers, readAllActivity,
+      sendMessage, startConversation, markRead, deleteMessage, deleteConversation, placeCall, activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, toggleCallHold, toggleSpeaker, dismissCall, addBalance, setWallet, refreshWallet, syncBillingSoon, buyNumber, releaseNumber, subscribe, subscribeAndBuy, subscribeByCardAndBuy, setAutoRenew, cancelSubscription, resendVerification, refreshUser, refreshSubscription, searchNumbers, readAllActivity,
       updateUser, togglePref, block, unblock,
     }}>
       {children}

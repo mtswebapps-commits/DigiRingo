@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect, type CSSProperties } from "react";
-import { ArrowLeft, Send as SendIcon, Phone, ChevronDown, Check, ShieldAlert, Inbox as InboxIcon, SquarePen, X } from "lucide-react";
+import { ArrowLeft, Send as SendIcon, Phone, ChevronDown, Check, ShieldAlert, Inbox as InboxIcon, SquarePen, X, MoreVertical, Trash2, Smile } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
+
+/** A small palette of common emojis for the in-chat picker. */
+const EMOJIS = "😀 😂 😅 😊 😍 😘 😎 🤔 😴 😭 😡 👍 👎 🙏 👏 🙌 💪 🔥 🎉 ✨ ❤️ 💜 💔 ✅ ❌ ⭐ 📞 📱 💬 📷 🎁 💰 ⏰ 📍 🚀 👀 🤝 🙈 💯 😳".split(" ");
 
 /**
  * Inbox — number-wise. Conversations are scoped to the selected owned number
  * (the "inbox"). A switcher lets the user jump between their numbers' inboxes.
  */
 export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: string | null; onComposeHandled?: () => void } = {}) {
-  const { state, selectNumber, sendMessage, markRead, startConversation } = useApp();
+  const { state, selectNumber, sendMessage, markRead, startConversation, placeCall, deleteMessage, deleteConversation } = useApp();
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -16,6 +19,9 @@ export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: strin
   const [toInput, setToInput] = useState("");
   const [bodyInput, setBodyInput] = useState("");
   const [showFromPicker, setShowFromPicker] = useState(false);
+  const [headerMenu, setHeaderMenu] = useState(false);
+  const [msgMenuId, setMsgMenuId] = useState<string | null>(null);
+  const [showEmoji, setShowEmoji] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const activeNumber = state.numbers.find((n) => n.id === state.activeNumberId) ?? state.numbers[0];
@@ -66,7 +72,7 @@ export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: strin
     const locked = num?.verification !== "verified";
     return (
       <div style={{ background: C.bg, height: "100%", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "16px 16px 14px", background: C.card, borderBottom: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        <div style={{ padding: "16px 16px 14px", background: C.card, borderBottom: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, position: "relative" }}>
           <button onClick={() => setActiveConvoId(null)} style={iconBtn}>
             <ArrowLeft size={17} color={C.text} />
           </button>
@@ -75,22 +81,45 @@ export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: strin
             <p style={{ color: C.text, fontSize: 13, fontWeight: 700, fontFamily: font.mono }}>{activeConvo.contact}</p>
             <p style={{ color: C.muted, fontSize: 11, marginTop: 3 }}>via {num?.settings.label || num?.number}</p>
           </div>
-          <button style={{ ...iconBtn, background: "rgba(124,92,255,0.12)" }}><Phone size={16} color={C.blue} /></button>
+          <button onClick={() => placeCall(activeConvo.contact)} title="Call" style={{ ...iconBtn, background: "rgba(34,197,94,0.14)" }}><Phone size={16} color={C.green} /></button>
+          <button onClick={() => setHeaderMenu((v) => !v)} title="More" style={iconBtn}><MoreVertical size={17} color={C.text} /></button>
+          {headerMenu && (
+            <>
+              <div onClick={() => setHeaderMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", top: 60, right: 14, zIndex: 50, background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.5)", overflow: "hidden", minWidth: 190 }}>
+                <button onClick={() => { setHeaderMenu(false); placeCall(activeConvo.contact); }} style={menuItem}>
+                  <Phone size={15} color={C.text} /> Call {activeConvo.contact}
+                </button>
+                <button onClick={() => { setHeaderMenu(false); deleteConversation(activeConvo.id); setActiveConvoId(null); }} style={{ ...menuItem, color: C.red, borderTop: `1px solid ${C.lineSoft}` }}>
+                  <Trash2 size={15} color={C.red} /> Delete conversation
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px", display: "flex", flexDirection: "column", gap: 10 }}>
           {activeConvo.messages.map((m) => (
             <div key={m.id} style={{ display: "flex", justifyContent: m.sent ? "flex-end" : "flex-start" }}>
-              <div style={{ maxWidth: "76%" }}>
-                <div style={{
+              <div style={{ maxWidth: "76%", position: "relative" }}>
+                <div onClick={() => setMsgMenuId(msgMenuId === m.id ? null : m.id)} style={{
                   padding: "10px 14px", borderRadius: m.sent ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                  background: m.sent ? gradients.brand : C.card, border: m.sent ? "none" : `1px solid ${C.line}`,
+                  background: m.sent ? gradients.brand : C.card, border: m.sent ? "none" : `1px solid ${C.line}`, cursor: "pointer",
                 }}>
-                  <p style={{ color: C.text, fontSize: 14, lineHeight: 1.45 }}>{m.text}</p>
+                  <p style={{ color: C.text, fontSize: 14, lineHeight: 1.45, wordBreak: "break-word" }}>{m.text}</p>
                 </div>
                 <p style={{ color: C.muted, fontSize: 10, marginTop: 5, textAlign: m.sent ? "right" : "left" }}>
                   {m.time}{m.sent && m.status ? ` · ${DLR_LABEL[m.status]}` : ""}
                 </p>
+                {msgMenuId === m.id && (
+                  <button onClick={() => { deleteMessage(activeConvo.id, m.id); setMsgMenuId(null); }} title="Delete message" style={{
+                    position: "absolute", top: -9, [m.sent ? "left" : "right"]: -9, width: 26, height: 26, borderRadius: "50%",
+                    background: C.red, border: `2px solid ${C.bg}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                  }}>
+                    <Trash2 size={13} color="#fff" />
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -104,12 +133,24 @@ export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: strin
           </div>
         )}
 
-        <div style={{ padding: "12px 16px 20px", background: C.card, borderTop: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        {/* Emoji picker */}
+        {showEmoji && (
+          <div style={{ margin: "0 12px 6px", padding: "10px 12px", background: C.card, border: `1px solid ${C.line}`, borderRadius: radius.md, display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 168, overflowY: "auto", flexShrink: 0 }}>
+            {EMOJIS.map((e) => (
+              <button key={e} onClick={() => setDraft((d) => d + e)} style={{ background: "none", border: "none", fontSize: 23, cursor: "pointer", padding: 5, lineHeight: 1, borderRadius: 8 }}>{e}</button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ padding: "12px 12px 20px", background: C.card, borderTop: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <button onClick={() => setShowEmoji((v) => !v)} title="Emoji" style={{ ...iconBtn, background: showEmoji ? "rgba(124,92,255,0.2)" : C.input }}>
+            <Smile size={19} color={showEmoji ? C.blue : C.muted} />
+          </button>
           <input
             value={draft} onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
             placeholder={locked ? "Number not registered…" : "Type a message…"}
-            style={{ flex: 1, padding: "12px 16px", background: C.input, border: `1px solid ${C.line}`, borderRadius: radius.xl, color: C.text, fontSize: 14, outline: "none", fontFamily: font.sans }}
+            style={{ flex: 1, minWidth: 0, padding: "12px 16px", background: C.input, border: `1px solid ${C.line}`, borderRadius: radius.xl, color: C.text, fontSize: 14, outline: "none", fontFamily: font.sans }}
           />
           <button onClick={send} style={{
             width: 46, height: 46, borderRadius: "50%", flexShrink: 0, border: "none",
@@ -313,6 +354,12 @@ export function InboxScreen({ composeTo, onComposeHandled }: { composeTo?: strin
 const iconBtn: CSSProperties = {
   width: 36, height: 36, borderRadius: 11, background: C.input, border: "none",
   display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+};
+
+const menuItem: CSSProperties = {
+  width: "100%", padding: "12px 14px", background: "none", border: "none", cursor: "pointer",
+  display: "flex", alignItems: "center", gap: 10, color: C.text, fontSize: 13.5, fontWeight: 600,
+  fontFamily: font.sans, textAlign: "left",
 };
 
 /** Telnyx delivery-status label shown under sent bubbles. */

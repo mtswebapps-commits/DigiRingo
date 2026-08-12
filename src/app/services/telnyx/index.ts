@@ -196,6 +196,18 @@ export const telnyx = {
     await http("/messaging/read", { method: "POST", body: { owned, contact } });
   },
 
+  /** Delete a single message by its Telnyx id (server-side). */
+  async deleteMessage(telnyxId: string): Promise<void> {
+    if (!live || !telnyxId) return;
+    await http(`/messaging/message?id=${encodeURIComponent(telnyxId)}`, { method: "DELETE" });
+  },
+
+  /** Delete an entire conversation thread (owned ↔ contact) server-side. */
+  async deleteConversation(owned: string, contact: string): Promise<void> {
+    if (!live) return;
+    await http(`/messaging/conversation?owned=${encodeURIComponent(owned)}&contact=${encodeURIComponent(contact)}`, { method: "DELETE" });
+  },
+
   /* §7 number regulatory requirements (KYC documents for some countries) */
   async getNumberRequirements(phoneNumber: string): Promise<RegulatoryRequirement[]> {
     if (!live) return mock.getNumberRequirements(phoneNumber);
