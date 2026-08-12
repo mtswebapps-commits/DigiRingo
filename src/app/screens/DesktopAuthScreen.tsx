@@ -13,7 +13,7 @@ import { DgrMark } from "../components/DgrMark";
  */
 export function DesktopAuthScreen() {
   const { login, showToast } = useApp();
-  const [mode, setMode] = useState<"login" | "signup">("signup");
+  const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");

@@ -10,7 +10,7 @@ import { SocialButtons } from "../components/SocialButtons";
 /** Sign up / Log in. Gates the whole app — nothing is reachable until logged in. */
 export function AuthScreen() {
   const { login, showToast } = useApp();
-  const [mode, setMode] = useState<"login" | "signup">("signup");
+  const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");

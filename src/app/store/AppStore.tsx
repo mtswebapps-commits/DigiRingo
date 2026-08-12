@@ -21,7 +21,7 @@ import {
 } from "../services/api";
 import { loadPaymentConfig, startCheckout, capturePaypalReturn } from "../services/paypal";
 import { initOAuthCapture, onOAuthResult } from "../services/oauth";
-import { flushPushToken } from "../native";
+import { flushPushToken, isNative } from "../native";
 import {
   startCall as voiceStart, hangupCall as voiceHangup, toggleMute as voiceToggleMute, sendDtmf as voiceSendDtmf,
   toggleHold as voiceToggleHold, toggleSpeaker as voiceToggleSpeaker,
@@ -508,6 +508,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     inboxSeeded.current = false;
     usageAlerted.current = { near: false, over: false };
     clearToken();
+    // On the web, drop the user on the marketing home page (not the login screen).
+    // On native there's no marketing site, so just reset to the in-app login.
+    if (!isNative() && typeof window !== "undefined") { window.location.href = "/"; return; }
     dispatch({ t: "LOGOUT" });
   }, []);
   const setWallet = useCallback((balance: number, txns: WalletTxn[]) => dispatch({ t: "SET_WALLET", balance, txns }), []);
