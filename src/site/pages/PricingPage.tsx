@@ -22,8 +22,8 @@ export function PricingPage() {
           </Reveal>
           <Reveal delay={150}>
             <p className="dg-lead" style={{ marginTop: 22, maxWidth: 560, margin: "22px auto 0" }}>
-              Every number comes with a plan — one number <b>included</b>, plus minutes &amp; SMS.
-              Add more numbers, and keep going pay-as-you-go when you need to. Wallet or card.
+              Every plan is a pool of minutes &amp; SMS — add numbers at <b>$2.99/mo each</b>.
+              Keep going pay-as-you-go when you need to. Wallet or card.
             </p>
           </Reveal>
         </div>
@@ -103,14 +103,14 @@ export function PricingPage() {
             <SectionIntro
               eyebrow="Extra numbers & overflow"
               title="Add more numbers. Never get cut off."
-              lead="Your first number is included with any plan. Add extra numbers at a flat monthly fee, and if you go past your plan's minutes or SMS you keep going pay-as-you-go — all pooled across your account, drawn from your wallet."
+              lead="Add numbers to any plan at a flat $2.99/mo each ($4.99/mo toll-free). If you go past your plan's minutes or SMS you keep going pay-as-you-go — all pooled across your account, drawn from your wallet."
             />
           </Reveal>
           <div className="dg-grid dg-grid-2" style={{ marginTop: 40, alignItems: "start", gap: 22 }}>
             <Reveal>
               <div className="dg-card" style={{ padding: 28 }}>
                 <h3 className="dg-h3" style={{ fontSize: 18 }}>Extra numbers</h3>
-                <p className="dg-muted" style={{ fontSize: 13.5, marginTop: 6 }}>First is included — extras per month.</p>
+                <p className="dg-muted" style={{ fontSize: 13.5, marginTop: 6 }}>Flat monthly rental per number — no contract.</p>
                 <div style={{ marginTop: 18 }}>
                   {NUMBER_RENTAL.map((r) => (
                     <PriceRow key={r.type} label={r.type} price={r.price} unit={r.unit} />

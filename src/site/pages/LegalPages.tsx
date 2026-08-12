@@ -122,7 +122,7 @@ export function TermsPage() {
       </P>
 
       <H>10. Contact</H>
-      <P>Questions about these Terms? Email us at support@digiringo.app.</P>
+      <P>Questions about these Terms? Email us at support@digiringo.com.</P>
     </LegalLayout>
   );
 }
@@ -196,7 +196,7 @@ export function PrivacyPage() {
       </P>
 
       <H>10. Contact</H>
-      <P>Privacy questions? Email support@digiringo.app.</P>
+      <P>Privacy questions? Email support@digiringo.com.</P>
     </LegalLayout>
   );
 }

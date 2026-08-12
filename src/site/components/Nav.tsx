@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Menu, X, Sun, Moon } from "lucide-react";
 import { Link, useRouter } from "../router";
-import { Logo, LinkButton } from "./ui";
+import { Logo } from "./ui";
 import { NAV } from "../data";
 import { useTheme } from "../theme";
 
@@ -54,12 +54,14 @@ export function Nav() {
           </div>
           <div className="dg-nav-cta">
             {ThemeToggle}
-            <Link to="/login" className="dg-nav-link dg-hide-sm">
+            {/* Sign-in lives ONLY in the app (digiringo.com/app) — one login, not two.
+                Real anchors (not hash Links) so these leave the marketing SPA. */}
+            <a href="/app" className="dg-nav-link dg-hide-sm">
               Log in
-            </Link>
-            <LinkButton to="/signup" variant="primary" size="sm">
+            </a>
+            <a href="/app" className="dg-btn dg-btn-primary dg-btn-sm">
               Get started
-            </LinkButton>
+            </a>
             <button className="dg-burger" onClick={() => setOpen(true)} aria-label="Open menu">
               <Menu size={20} />
             </button>
@@ -82,13 +84,13 @@ export function Nav() {
             {n.label}
           </Link>
         ))}
-        <Link to="/login" onClick={() => setOpen(false)}>
+        <a href="/app" onClick={() => setOpen(false)}>
           Log in
-        </Link>
+        </a>
         <div style={{ marginTop: 24 }}>
-          <LinkButton to="/signup" variant="primary" size="lg">
-            Get started free
-          </LinkButton>
+          <a href="/app" className="dg-btn dg-btn-primary dg-btn-lg" style={{ width: "100%" }}>
+            Get started
+          </a>
         </div>
       </div>
     </>
