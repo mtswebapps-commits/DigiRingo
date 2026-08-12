@@ -1,20 +1,23 @@
-import { RefreshCw, Plus, Send, Wallet2, MessageSquare, ShieldCheck, ChevronRight } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { RefreshCw, Plus, Send, Wallet2, MessageSquare, ShieldCheck, ChevronRight, Gift } from "lucide-react";
+import { useState, type ReactNode, type CSSProperties } from "react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
+import { getBundle } from "../core/plans";
+import { BillingReceipt } from "../components/BillingReceipt";
 
 interface Props {
   onBuyNumber: () => void;
   onOpenInbox: () => void;
   onOpenTrust: () => void;
   onTopUp: () => void;
+  onOpenPlans: () => void;
 }
 
 /**
  * Home — Quo-style layout. No analytics "insights" grid (removed per request);
  * instead a verification banner + Chats / Wallet summary cards + recent feed.
  */
-export function HomeScreen({ onBuyNumber, onOpenInbox, onOpenTrust, onTopUp }: Props) {
+export function HomeScreen({ onBuyNumber, onOpenInbox, onOpenTrust, onTopUp, onOpenPlans }: Props) {
   const { state } = useApp();
   const [spinning, setSpinning] = useState(false);
   const refresh = () => { setSpinning(true); setTimeout(() => setSpinning(false), 900); };
@@ -23,6 +26,8 @@ export function HomeScreen({ onBuyNumber, onOpenInbox, onOpenTrust, onTopUp }: P
   const unverified = state.numbers.filter((n) => n.verification !== "verified").length;
   const recent = [...state.conversations].sort((a, b) => b.unread - a.unread).slice(0, 5);
   const first = state.user?.name?.split(" ")[0] ?? "there";
+  const sub = state.subscription;
+  const bundle = sub ? getBundle(sub.tier) : undefined;
 
   return (
     <div style={{ background: C.bg, minHeight: "100%", paddingBottom: 24 }}>
@@ -99,6 +104,42 @@ export function HomeScreen({ onBuyNumber, onOpenInbox, onOpenTrust, onTopUp }: P
         </div>
       </div>
 
+      {/* Plan usage */}
+      <div style={{ padding: "0 20px 16px" }}>
+        <div style={{ background: C.card, borderRadius: radius.lg, border: `1px solid ${C.lineSoft}`, padding: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <p style={{ color: C.text, fontSize: 15, fontWeight: 700 }}>Plan usage</p>
+            <button onClick={onOpenPlans} style={{ background: C.input, border: `1px solid ${C.line}`, borderRadius: 10, padding: "7px 12px", color: C.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font.sans }}>Manage plan</button>
+          </div>
+          {sub && bundle ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                {([["Minutes", sub.minutesUsed, sub.minutesIncluded], ["SMS", sub.smsUsed, sub.smsIncluded]] as const).map(([label, u, t]) => (
+                  <div key={label}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>{label}</span>
+                      <span style={{ color: C.text, fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{u.toLocaleString()} / {t.toLocaleString()}</span>
+                    </div>
+                    <Bar used={u} total={t} />
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span style={chip}><Gift size={12} color={C.green} /> {sub.numbersUsed}/{sub.numbersMax} numbers</span>
+                <span style={chip}>{sub.autoRenew ? "🔄 Auto-renew on" : "⏸ Auto-renew off"}</span>
+                {sub.status === "past_due" && <span style={{ ...chip, color: C.red }}>⚠ Past due</span>}
+              </div>
+              <BillingReceipt sub={sub} />
+            </div>
+          ) : (
+            <div style={{ marginTop: 12 }}>
+              <p style={{ color: C.muted, fontSize: 12.5, lineHeight: 1.5 }}>You're on <b style={{ color: C.text }}>pay-as-you-go</b>. Pick a plan for included minutes &amp; SMS.</p>
+              <button onClick={onOpenPlans} style={{ marginTop: 12, width: "100%", padding: "11px 0", background: gradients.brand, border: "none", borderRadius: radius.md, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font.sans }}>Choose a plan</button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Recent messages */}
       <div style={{ padding: "0 20px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -126,6 +167,20 @@ export function HomeScreen({ onBuyNumber, onOpenInbox, onOpenTrust, onTopUp }: P
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+const chip: CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999,
+  background: C.input, border: `1px solid ${C.line}`, color: C.muted, fontSize: 11.5, fontWeight: 600, fontFamily: font.sans,
+};
+
+function Bar({ used, total }: { used: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+  return (
+    <div style={{ height: 6, borderRadius: 999, background: C.input, overflow: "hidden" }}>
+      <div style={{ width: `${pct}%`, height: "100%", background: gradients.brand, borderRadius: 999 }} />
     </div>
   );
 }

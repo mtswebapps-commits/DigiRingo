@@ -7,6 +7,7 @@ import {
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import { BUNDLES, bundlePrice, getBundle, type Bundle, type BillingCycle } from "../core/plans";
+import { BillingReceipt } from "../components/BillingReceipt";
 import { PaySheet } from "../screens/PlansScreen";
 import type { Section } from "../DashboardShell";
 
@@ -114,8 +115,9 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <span style={chip}><Gift size={13} color={C.green} /> {sub.numbersUsed}/{sub.numbersMax} numbers</span>
                   <span style={chip}>{sub.autoRenew ? "🔄 Auto-renew on" : "⏸ Auto-renew off"}</span>
-                  <span style={{ ...chip, color: sub.status === "past_due" ? C.red : C.muted }}>{sub.status === "past_due" ? "⚠ Past due — top up" : `$${sub.renewAmount.toFixed(2)} / ${sub.cycle}`}</span>
+                  {sub.status === "past_due" && <span style={{ ...chip, color: C.red }}>⚠ Past due — top up</span>}
                 </div>
+                <BillingReceipt sub={sub} />
               </div>
             ) : (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>

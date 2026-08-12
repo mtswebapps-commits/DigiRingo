@@ -110,7 +110,7 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
 
   const renderTab = () => {
     switch (activeTab) {
-      case "home":     return <HomeScreen onBuyNumber={() => setShowBuy(true)} onOpenInbox={() => setActiveTab("inbox")} onOpenTrust={() => setOverlay({ name: "trust" })} onTopUp={() => setOverlay({ name: "billing" })} />;
+      case "home":     return <HomeScreen onBuyNumber={() => setShowBuy(true)} onOpenInbox={() => setActiveTab("inbox")} onOpenTrust={() => setOverlay({ name: "trust" })} onTopUp={() => setOverlay({ name: "billing" })} onOpenPlans={() => setOverlay({ name: "plans" })} />;
       case "numbers":  return <NumbersScreen onBuyNumber={() => setShowBuy(true)} onOpenSettings={(id) => setOverlay({ name: "numberSettings", id })} onOpenInbox={openInboxFor} />;
       case "calls":    return <CallsScreen onOpenDialer={() => setOverlay({ name: "dialer" })} onMessage={(num) => { setComposeTo(num); setActiveTab("inbox"); }} />;
       case "inbox":    return <InboxScreen composeTo={composeTo} onComposeHandled={() => setComposeTo(null)} />;
