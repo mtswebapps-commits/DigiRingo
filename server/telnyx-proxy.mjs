@@ -630,6 +630,35 @@ async function inboundTeXML({ stage, to, from }) {
 
   const qs = (s) => `${PUBLIC_BASE}/webhooks/texml?stage=${s}&to=${encodeURIComponent(to)}&from=${encodeURIComponent(from)}`;
 
+  // Per-number custom routing (set by the user in Number settings) OVERRIDES the
+  // default softphone→cellphone→voicemail chain on the first hop: the call goes
+  // straight to the user's own destination — a phone, a SIP agent, or their own
+  // TeXML webhook (a "caller agent" that controls the call). Any failed/ended leg
+  // falls through to voicemail. Only applied at "start"; later hops (fwd/vm) keep
+  // the normal tail. NB: a <Redirect> hands control to the user's server, so our
+  // per-call timeLimit budget cap can't be enforced past that point (the pre-call
+  // budget gate above still applies).
+  if (stage === "start" && owner.routeKind && owner.routeKind !== "app" && owner.routeDest) {
+    const vmAction = xmlEsc(qs("vm"));
+    if (owner.routeKind === "webhook") {
+      return texmlResponse(`  <Redirect method="POST">${xmlEsc(owner.routeDest)}</Redirect>`);
+    }
+    if (owner.routeKind === "sip") {
+      return texmlResponse(
+        `  <Dial timeout="30" timeLimit="${capSec}" answerOnBridge="true" callerId="${xmlEsc(from)}" action="${vmAction}" method="POST">\n` +
+        `    <Sip>${xmlEsc(owner.routeDest)}</Sip>\n` +
+        `  </Dial>`
+      );
+    }
+    if (owner.routeKind === "number") {
+      return texmlResponse(
+        `  <Dial timeout="30" timeLimit="${capSec}" callerId="${xmlEsc(to)}" action="${vmAction}" method="POST">\n` +
+        `    <Number>${xmlEsc(owner.routeDest)}</Number>\n` +
+        `  </Dial>`
+      );
+    }
+  }
+
   // Stage 1: ring the in-app WebRTC softphone(s). Every signed-in device has its
   // own SIP identity, so we <Dial> them ALL in one leg — Telnyx forks the INVITE
   // in parallel and the call rings the phone AND the browser (AND any other
@@ -1703,6 +1732,29 @@ createServer(async (req, res) => {
   }
 
   // 3a) List the user's owned numbers + their plan's number-capacity.
+  // 3a-i) Per-number incoming-call routing (ring my app / forward to a number /
+  //       connect to a SIP agent / hand to my webhook). MUST be matched before the
+  //       generic GET /api/numbers below (which would otherwise swallow it).
+  if (req.url?.startsWith("/api/numbers/routing")) {
+    if (!db) return send(res, 503, { error: "Database not configured" });
+    const uid = db.verifyToken(bearer(req));
+    if (!uid) return send(res, 401, { error: "Not authenticated" });
+    if (req.method === "GET") {
+      const e164 = new URL(req.url, `https://${req.headers.host}`).searchParams.get("e164") || "";
+      try { return send(res, 200, await db.getNumberRouting(uid, e164)); }
+      catch (e) { return send(res, e.status || 500, { error: e.message }); }
+    }
+    if (req.method === "POST") {
+      const body = await readBody(req);
+      let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
+      try {
+        const r = await db.setNumberRouting(uid, d.e164, { routeKind: d.routeKind, routeDest: d.routeDest });
+        return send(res, 200, { ok: true, ...r });
+      } catch (e) { return send(res, e.status || 500, { error: e.message }); }
+    }
+    return send(res, 405, { error: "Method not allowed" });
+  }
+
   if (req.url?.startsWith("/api/numbers") && req.method === "GET") {
     if (!db) return send(res, 503, { error: "Database not configured" });
     const uid = db.verifyToken(bearer(req));

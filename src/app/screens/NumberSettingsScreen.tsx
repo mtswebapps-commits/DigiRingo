@@ -1,18 +1,71 @@
-import { useState, type ReactNode, type CSSProperties } from "react";
-import { ArrowLeft, ChevronRight, ShieldCheck, Trash2 } from "lucide-react";
+import { useEffect, useState, type ReactNode, type CSSProperties } from "react";
+import { ArrowLeft, ChevronRight, ShieldCheck, Trash2, Smartphone, PhoneForwarded, Bot, Webhook, Loader2 } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
+import { telnyx } from "../services/telnyx";
+import { apiGetNumberRouting, apiSetNumberRouting, type RouteKind } from "../services/api";
 import type { NumberSettings } from "../core/types";
 
 interface Props { numberId: string; onBack: () => void; onOpenTrust: () => void; }
+
+type DestKind = Exclude<RouteKind, "app">;
+const ROUTE_OPTIONS: { kind: RouteKind; title: string; sub: string; Icon: typeof Smartphone }[] = [
+  { kind: "app",     title: "Ring my app",               sub: "Calls ring your DIGIRINGO app (default)",  Icon: Smartphone },
+  { kind: "number",  title: "Forward to a number",       sub: "Send calls to another phone number",        Icon: PhoneForwarded },
+  { kind: "sip",     title: "Connect to my agent (SIP)", sub: "Dial a SIP endpoint / AI voice agent",      Icon: Bot },
+  { kind: "webhook", title: "Send to my app (webhook)",  sub: "Hand the call to your own TeXML URL",       Icon: Webhook },
+];
+const DEST_PLACEHOLDER: Record<DestKind, string> = {
+  number: "+1 555 123 4567",
+  sip: "sip:agent@your-domain.com",
+  webhook: "https://your-app.com/voice",
+};
+const DEST_HINT: Record<DestKind, string> = {
+  number: "Incoming calls to this number are forwarded here. Standard call minutes apply.",
+  sip: "Calls are dialed to this SIP URI (e.g. your AI voice agent). Falls to voicemail if it doesn't answer.",
+  webhook: "Telnyx POSTs the call to this HTTPS URL, which must return TeXML — your caller agent then controls the call.",
+};
 
 /** Per-number settings — the "number action" screen (Quo-style). */
 export function NumberSettingsScreen({ numberId, onBack, onOpenTrust }: Props) {
   const { state, updateSettings, showToast, releaseNumber } = useApp();
   const [confirmRelease, setConfirmRelease] = useState(false);
   const [releasing, setReleasing] = useState(false);
+
+  // Per-number incoming-call routing (server-backed, unlike the local-only
+  // toggles above). Loaded from /api/numbers/routing; only editable on the live
+  // backend (the mock demo has no server to store it).
+  const live = telnyx.mode === "live";
+  const [routeKind, setRouteKind] = useState<RouteKind>("app");
+  const [routeDest, setRouteDest] = useState("");
+  const [savedRoute, setSavedRoute] = useState<{ kind: RouteKind; dest: string }>({ kind: "app", dest: "" });
+  const [savingRoute, setSavingRoute] = useState(false);
+
   const n = state.numbers.find((x) => x.id === numberId);
+
+  useEffect(() => {
+    if (!live || !n) return;
+    let alive = true;
+    apiGetNumberRouting(n.number)
+      .then((r) => { if (!alive) return; setRouteKind(r.routeKind); setRouteDest(r.routeDest); setSavedRoute({ kind: r.routeKind, dest: r.routeDest }); })
+      .catch(() => { /* keep defaults (route not set yet / offline) */ });
+    return () => { alive = false; };
+  }, [live, n?.number]);
+
   if (!n) return null;
+
+  const routeDirty = routeKind !== savedRoute.kind || routeDest.trim() !== savedRoute.dest;
+  const saveRouting = async () => {
+    setSavingRoute(true);
+    try {
+      const r = await apiSetNumberRouting(n.number, { routeKind, routeDest: routeDest.trim() });
+      setSavedRoute({ kind: r.routeKind, dest: r.routeDest });
+      setRouteKind(r.routeKind); setRouteDest(r.routeDest);
+      showToast("Call routing saved ✓");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Couldn't save routing", "error");
+    } finally { setSavingRoute(false); }
+  };
 
   const toggle = (key: keyof NumberSettings) =>
     updateSettings(n.id, { [key]: !n.settings[key] } as Partial<NumberSettings>);
@@ -64,6 +117,56 @@ export function NumberSettingsScreen({ numberId, onBack, onOpenTrust }: Props) {
         <ToggleRow label="Call transcripts"          on={n.settings.transcripts}   onClick={() => toggle("transcripts")} sub="Powered by DIGIRINGO AI ✨" />
         <ToggleRow label="Forward all calls"         on={n.settings.forwardAll}    onClick={() => toggle("forwardAll")} />
       </Group>
+
+      {/* Incoming call routing — where calls to THIS number go: the app, another
+          number, a SIP agent, or the user's own webhook (their caller agent). */}
+      <Group title="When someone calls this number">
+        {ROUTE_OPTIONS.map((opt) => {
+          const active = routeKind === opt.kind;
+          return (
+            <div key={opt.kind} onClick={() => live && setRouteKind(opt.kind)} style={{
+              padding: "13px 16px", display: "flex", alignItems: "center", gap: 12,
+              borderBottom: `1px solid ${C.lineSoft}`, cursor: live ? "pointer" : "default", opacity: live ? 1 : 0.55,
+            }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: active ? gradients.brand : C.input }}>
+                <opt.Icon size={16} color={active ? "#fff" : C.muted} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ color: C.text, fontSize: 14, fontWeight: 600 }}>{opt.title}</p>
+                <p style={{ color: C.muted, fontSize: 11.5, marginTop: 2 }}>{opt.sub}</p>
+              </div>
+              <span style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, border: `2px solid ${active ? C.blue : C.line}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {active && <span style={{ width: 10, height: 10, borderRadius: "50%", background: C.blue }} />}
+              </span>
+            </div>
+          );
+        })}
+        {routeKind !== "app" && (
+          <div style={{ padding: "12px 16px" }}>
+            <input value={routeDest} onChange={(e) => setRouteDest(e.target.value)} disabled={!live}
+              placeholder={DEST_PLACEHOLDER[routeKind as DestKind]} autoCapitalize="none" autoCorrect="off" spellCheck={false}
+              style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", background: C.input, border: `1.5px solid ${C.line}`, borderRadius: radius.md, color: C.text, fontSize: 13.5, fontFamily: font.mono, outline: "none" }} />
+            <p style={{ color: C.muted, fontSize: 11, marginTop: 8, lineHeight: 1.5 }}>{DEST_HINT[routeKind as DestKind]}</p>
+          </div>
+        )}
+      </Group>
+      {live ? (
+        routeDirty && (
+          <div style={{ padding: "0 20px 16px" }}>
+            <button onClick={saveRouting} disabled={savingRoute} style={{
+              width: "100%", padding: "13px", borderRadius: radius.md, background: gradients.brand, border: "none",
+              color: "#fff", fontSize: 14, fontWeight: 800, cursor: savingRoute ? "default" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: savingRoute ? 0.7 : 1, fontFamily: font.sans,
+            }}>
+              {savingRoute && <Loader2 size={16} className="dg-spin" />} Save call routing
+            </button>
+          </div>
+        )
+      ) : (
+        <div style={{ padding: "0 20px 16px", marginTop: -8 }}>
+          <p style={{ color: C.faint, fontSize: 11.5 }}>Call routing is configurable on the live app.</p>
+        </div>
+      )}
 
       <Group title="Preferences">
         <Row label="Ringtone" onClick={() => showToast("Ringtone picker coming soon")}>

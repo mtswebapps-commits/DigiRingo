@@ -161,6 +161,17 @@ export const apiGetForwarding = () => req<ApiForwarding>("/api/user/forward");
 export const apiSetForwarding = (f: ApiForwarding) =>
   req<{ ok: boolean } & ApiForwarding>("/api/user/forward", { method: "POST", body: JSON.stringify(f) });
 
+/** How a single number's INCOMING calls are handled. */
+export type RouteKind = "app" | "number" | "sip" | "webhook";
+export interface NumberRouting { routeKind: RouteKind; routeDest: string; }
+
+/** Per-number incoming-call routing — ring the app, forward to a number, connect
+ *  to a SIP agent, or hand the call to the user's own webhook (caller agent). */
+export const apiGetNumberRouting = (e164: string) =>
+  req<NumberRouting>(`/api/numbers/routing?e164=${encodeURIComponent(e164)}`);
+export const apiSetNumberRouting = (e164: string, r: NumberRouting) =>
+  req<{ ok: boolean } & NumberRouting>("/api/numbers/routing", { method: "POST", body: JSON.stringify({ e164, ...r }) });
+
 export interface ApiVoicemail { id: string; from: string; to: string; url: string; duration: number; read: boolean; time: string; }
 /** Voicemails left when an incoming call wasn't answered. */
 export const apiGetVoicemails = () => req<{ voicemails: ApiVoicemail[] }>("/api/voicemails");

@@ -189,6 +189,65 @@ async function ensureOAuthColumns() {
   oauthColsReady = true;
 }
 
+/* ---------------------------------------------- per-number incoming-call routing
+ * By default a number rings the owner's in-app softphone (route_kind 'app'). A
+ * user can instead point ONE number's inbound calls at their own destination:
+ *   'number'  → forward to a PSTN number  (<Dial><Number>)
+ *   'sip'     → connect to a SIP endpoint (<Dial><Sip>) — e.g. an AI voice agent
+ *   'webhook' → hand the whole call to their own TeXML URL (<Redirect>) — e.g. a
+ *               caller agent that controls the call itself.
+ * Columns are self-applied like the OAuth ones (no shell on the host). */
+const ROUTE_KINDS = new Set(["app", "number", "sip", "webhook"]);
+let routeColsReady = false;
+async function ensureRoutingColumns() {
+  if (routeColsReady) return;
+  const add = async (sql) => { try { await pool.query(sql); } catch (e) { if (e?.errno !== 1060) throw e; } };
+  await add("ALTER TABLE numbers ADD COLUMN route_kind VARCHAR(16) NOT NULL DEFAULT 'app'");
+  await add("ALTER TABLE numbers ADD COLUMN route_dest VARCHAR(255) NOT NULL DEFAULT ''");
+  routeColsReady = true;
+}
+
+/** Read one owned number's incoming-call routing (owner-scoped). */
+export async function getNumberRouting(uid, e164) {
+  await ensureRoutingColumns();
+  const norm = onlyDigitsPlus(e164);
+  if (!norm) throw httpErr(400, "Invalid number");
+  const [rows] = await pool.query(
+    "SELECT route_kind, route_dest FROM numbers WHERE user_id = ? AND e164 = ? AND status = 'active' LIMIT 1",
+    [uid, norm]
+  );
+  const r = rows[0];
+  if (!r) throw httpErr(404, "Number not found");
+  return { routeKind: r.route_kind || "app", routeDest: r.route_dest || "" };
+}
+
+/** Validate + save one owned number's incoming-call routing (owner-scoped). */
+export async function setNumberRouting(uid, e164, { routeKind, routeDest }) {
+  await ensureRoutingColumns();
+  const norm = onlyDigitsPlus(e164);
+  if (!norm) throw httpErr(400, "Invalid number");
+  const kind = ROUTE_KINDS.has(routeKind) ? routeKind : "app";
+  let dest = String(routeDest || "").trim();
+  if (kind === "app") {
+    dest = "";
+  } else if (kind === "number") {
+    dest = onlyDigitsPlus(dest);
+    if (!dest) throw httpErr(400, "Enter a valid phone number to forward to");
+  } else if (kind === "sip") {
+    if (!/^sip:/i.test(dest)) dest = `sip:${dest}`;
+    if (!/^sip:[^\s@]+@[^\s@]+$/i.test(dest)) throw httpErr(400, "Enter a valid SIP URI, e.g. sip:agent@example.com");
+  } else if (kind === "webhook") {
+    if (!/^https:\/\/[^\s]+$/i.test(dest)) throw httpErr(400, "Webhook URL must start with https://");
+    if (dest.length > 255) throw httpErr(400, "Webhook URL is too long");
+  }
+  const [r] = await pool.query(
+    "UPDATE numbers SET route_kind = ?, route_dest = ? WHERE user_id = ? AND e164 = ? AND status = 'active'",
+    [kind, dest, uid, norm]
+  );
+  if (!r.affectedRows) throw httpErr(404, "Number not found");
+  return { routeKind: kind, routeDest: dest };
+}
+
 /**
  * Find-or-create a user from a verified OAuth profile, then issue a session.
  *   1) match on (provider, provider_id) — the stable account link;
@@ -879,10 +938,12 @@ export async function getActiveSipUsernames(uid, { withinDays = 45, limit = 5 } 
 /** Resolve who owns a DIGIRINGO number + their call-routing settings, for inbound
  *  TeXML routing. Matches on the E.164 of an active number. */
 export async function findNumberOwner(e164) {
+  await ensureRoutingColumns();
   const norm = onlyDigitsPlus(e164);
   if (!norm) return null;
   const [rows] = await pool.query(
-    `SELECT u.id AS user_id, u.forward_number, u.voicemail_enabled, u.sip_username, u.name
+    `SELECT u.id AS user_id, u.forward_number, u.voicemail_enabled, u.sip_username, u.name,
+            n.route_kind, n.route_dest
        FROM numbers n JOIN users u ON u.id = n.user_id
       WHERE n.e164 = ? AND n.status = 'active' LIMIT 1`, [norm]
   );
@@ -894,6 +955,8 @@ export async function findNumberOwner(e164) {
     voicemailEnabled: r.voicemail_enabled == null ? true : !!Number(r.voicemail_enabled),
     sipUsername: r.sip_username || "",
     name: r.name || "",
+    routeKind: r.route_kind || "app",
+    routeDest: r.route_dest || "",
   };
 }
 
