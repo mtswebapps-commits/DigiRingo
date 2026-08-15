@@ -628,7 +628,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Social sign-in return: the OAuth callback hands back a token (web via URL hash,
   // native via the com.digiringo.app://oauth deep link). Capture it once and log in.
   useEffect(() => {
-    initOAuthCapture();
+    // Subscribe BEFORE initOAuthCapture(): the web-hash capture emits the token
+    // synchronously, so the listener must already be registered (the result is
+    // also latched in oauth.ts as a belt-and-braces guard against this race).
     const off = onOAuthResult(async ({ token, error }) => {
       if (token) {
         const r = await loginWithToken(token);
@@ -638,6 +640,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast(error, "error");
       }
     });
+    initOAuthCapture();
     return off;
   }, [loginWithToken, showToast]);
 

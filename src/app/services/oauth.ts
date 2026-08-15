@@ -18,12 +18,21 @@ export type OAuthProviders = { google: boolean; apple: boolean };
 type OAuthResult = { token?: string; error?: string };
 
 const subs = new Set<(r: OAuthResult) => void>();
+// The web hash is captured SYNCHRONOUSLY at app start (see captureWebHash), which
+// can fire before the store's subscriber has mounted. Latch an undelivered result
+// so a late subscriber still receives it instead of the token vanishing (which
+// dropped the user back on the login page after a successful Google sign-in).
+let pending: OAuthResult | null = null;
 /** Subscribe to sign-in results (a token to log in with, or an error to show). */
 export function onOAuthResult(cb: (r: OAuthResult) => void): () => void {
   subs.add(cb);
+  if (pending) { const p = pending; pending = null; cb(p); }
   return () => subs.delete(cb);
 }
-function emit(r: OAuthResult) { subs.forEach((cb) => cb(r)); }
+function emit(r: OAuthResult) {
+  if (subs.size === 0) { pending = r; return; }
+  subs.forEach((cb) => cb(r));
+}
 
 type Cap = { isNativePlatform?: () => boolean };
 const isNative = (): boolean => {
