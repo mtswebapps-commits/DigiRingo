@@ -80,6 +80,7 @@ export function Footer() {
 
         <div className="dg-footer-bottom">
           <span>© 2026 DIGIRINGO. All rights reserved.</span>
+          <span>2827 Dunvale Rd, Houston, TX 77063, USA</span>
           <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>Made for a borderless world 🌍</span>
         </div>
       </div>

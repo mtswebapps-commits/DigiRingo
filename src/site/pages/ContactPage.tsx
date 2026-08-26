@@ -5,7 +5,7 @@ import { Reveal } from "../components/Reveal";
 const CHANNELS = [
   { icon: Mail, title: "Email us", body: "support@digiringo.com", sub: "We reply within 24 hours." },
   { icon: MessageSquare, title: "Live chat", body: "In-app support", sub: "Available right inside DIGIRINGO." },
-  { icon: MapPin, title: "Where we are", body: "Remote-first", sub: "Serving customers worldwide 🌍" },
+  { icon: MapPin, title: "Where we are", body: "2827 Dunvale Rd", sub: "Houston, TX 77063, USA 🇺🇸" },
 ];
 
 export function ContactPage() {
