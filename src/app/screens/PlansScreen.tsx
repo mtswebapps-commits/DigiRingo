@@ -3,15 +3,10 @@ import { ArrowLeft, Check, Wallet, CreditCard, X, Sparkles, Loader2 } from "luci
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import { BUNDLES, bundlePrice, getBundle, type Bundle, type BillingCycle, type PayMethod } from "../core/plans";
-import { startCheckout, paymentReady } from "../services/paypal";
+import { anyPaymentReady, availableGateways, startGatewayCheckout, type Gateway } from "../services/payments";
 
 interface Props { onBack: () => void; onTopUp: () => void; }
 
-/**
- * Plans & bundles. Pick a Starter / Business / Pro tier (monthly or annual) and
- * activate it — paying from the wallet or directly by card. The active plan and
- * its included-usage meters show at the top.
- */
 export function PlansScreen({ onBack, onTopUp }: Props) {
   const { state, subscribe, setAutoRenew, cancelSubscription } = useApp();
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
@@ -192,15 +187,20 @@ export function PaySheet({ bundle, cycle, walletBalance, onClose, onWallet, onCa
   const { state, showToast, syncBillingSoon } = useApp();
   const [pay, setPay] = useState<PayMethod>("wallet");
   const [busy, setBusy] = useState(false);
+  const [gateway, setGateway] = useState<Gateway>(availableGateways()[0] || "paypal");
+  const gateways = availableGateways();
   const price = bundlePrice(bundle, cycle);
   const enough = walletBalance >= price;
 
-  // Card = Stripe hosted Checkout. The plan is activated SERVER-SIDE by the
-  // webhook; the browser redirects to Stripe and returns to ?pay=success.
   const payByCard = async () => {
     setBusy(true);
     try {
-      await startCheckout({ kind: "plan", tier: bundle.id, cycle }); // redirects away
+      await startGatewayCheckout(gateway, { kind: "plan", tier: bundle.id, cycle }, { email: state.user?.email, name: state.user?.name });
+      if (gateway === "freemius") {
+        showToast("Payment received — updating your account…");
+        syncBillingSoon();
+        onCardDone();
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Checkout failed", "error");
     } finally {
@@ -231,7 +231,7 @@ export function PaySheet({ bundle, cycle, walletBalance, onClose, onWallet, onCa
         <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 0.8, textTransform: "uppercase" }}>Pay with</p>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <PayTab active={pay === "wallet"} onClick={() => setPay("wallet")} Icon={Wallet} title="Wallet" sub={`Balance $${walletBalance.toFixed(2)}`} />
-          <PayTab active={pay === "card"} onClick={() => setPay("card")} Icon={CreditCard} title="PayPal" sub="Card or balance" disabled={!paymentReady()} />
+          <PayTab active={pay === "card"} onClick={() => setPay("card")} Icon={CreditCard} title="Card" sub="Pay by card" disabled={!anyPaymentReady()} />
         </div>
 
         {pay === "wallet" ? (
@@ -247,9 +247,24 @@ export function PaySheet({ bundle, cycle, walletBalance, onClose, onWallet, onCa
           )
         ) : (
           <>
+            {gateways.length > 1 && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                {gateways.map((gw) => (
+                  <button key={gw} onClick={() => setGateway(gw)} style={{
+                    flex: 1, padding: "10px 12px", borderRadius: 10, textAlign: "center",
+                    cursor: "pointer", fontFamily: font.sans, fontSize: 13, fontWeight: 700,
+                    background: gateway === gw ? "rgba(124,92,255,0.12)" : C.input,
+                    border: `1.5px solid ${gateway === gw ? C.blue : C.line}`,
+                    color: gateway === gw ? C.text : C.muted,
+                  }}>
+                    {gw === "paypal" ? "PayPal" : "Freemius"}
+                  </button>
+                ))}
+              </div>
+            )}
             <p style={{ color: C.muted, fontSize: 12, marginBottom: 12, textAlign: "center" }}>Pay <b style={{ color: C.text }}>${price.toFixed(cycle === "annual" ? 0 : 2)}</b> securely by card — renews automatically.</p>
             <button disabled={busy} onClick={payByCard} style={{ ...primaryBtn, opacity: busy ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              {busy ? <><Loader2 size={17} className="dg-spin" /> Opening checkout…</> : <><CreditCard size={17} /> Pay with PayPal</>}
+              {busy ? <><Loader2 size={17} className="dg-spin" /> Opening checkout…</> : <><CreditCard size={17} /> Pay with {gateway === "paypal" ? "PayPal" : "Freemius"}</>}
             </button>
           </>
         )}

@@ -27,10 +27,11 @@ import { readFile, stat } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHmac, timingSafeEqual, createPublicKey, verify as edVerify } from "node:crypto";
-import { numberPrice, bundleCharge } from "./plans.mjs";
+import { numberPrice, bundleCharge, bundleFor, BUNDLES } from "./plans.mjs";
 import { sendPush, vapidPublicKey, webPushConfigured } from "./webpush.mjs";
 import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify, publishableKey as stripePubKey, stripeConfigured, createCustomer as stripeCreateCustomer, createSetupSession as stripeSetupSession, cardFromIntent as stripeCardFromIntent } from "./stripe.mjs";
 import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
+import { freemiusConfigured, verifyWebhook as fsVerifyWebhook, parseEvent as fsParseEvent, grantFor as fsGrantFor, getProductId as fsProductId, getPublicKey as fsPublicKey, getCheckouts as fsCheckouts } from "./freemius.mjs";
 import * as settings from "./settings-store.mjs";
 import { sendFcmToUser, sendFcm, fcmConfigured } from "./fcm.mjs";
 import { authorizeUrl as oauthAuthorizeUrl, exchangeCode as oauthExchangeCode, providerStatus as oauthProviders, isProvider as oauthIsProvider } from "./oauth.mjs";
@@ -186,6 +187,7 @@ function defaultWebhooks() {
     { id: "wh_telnyx", label: "Telnyx — inbound SMS & DLR", url: "/webhooks/telnyx", enabled: true, secretSet: !!TELNYX_PUBLIC_KEY },
     { id: "wh_paypal", label: "PayPal — payment events", url: "/api/paypal/webhook", enabled: true, secretSet: secretStatus("PAYPAL_WEBHOOK_ID", "PAYPAL_WEBHOOK_ID").status === "set" },
     { id: "wh_stripe", label: "Stripe — payment events", url: "/api/stripe/webhook", enabled: true, secretSet: secretStatus("STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET").status === "set" },
+    { id: "wh_freemius", label: "Freemius — payment events", url: "/api/freemius/webhook", enabled: true, secretSet: !!process.env.FREEMIUS_SECRET_KEY },
   ];
 }
 /** Assemble the full Control Hub config from the encrypted store + live env. */
@@ -196,6 +198,8 @@ function buildConfig() {
     cred("stripe", "Stripe", "Payments secret key (sk_live_…)", "STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"),
     cred("paypal_id", "PayPal client id", "REST app client id (public)", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_ID"),
     cred("paypal", "PayPal secret", "REST app secret", "PAYPAL_SECRET", "PAYPAL_SECRET"),
+    cred("freemius_pk", "Freemius public key", "pk_… (public, also sent to browser)", "FREEMIUS_PUBLIC_KEY", "FREEMIUS_PUBLIC_KEY"),
+    cred("freemius_sk", "Freemius secret key", "sk_… (webhook signature)", "FREEMIUS_SECRET_KEY", "FREEMIUS_SECRET_KEY"),
     cred("smtp", "Email (SMTP)", "Transactional / password-reset email", "SMTP_PASS", "SMTP_PASS"),
     cred("google_id", "Google sign-in — client id", "OAuth client id (…apps.googleusercontent.com)", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_ID"),
     cred("google_secret", "Google sign-in — secret", "OAuth client secret", "GOOGLE_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET"),
@@ -208,6 +212,7 @@ function buildConfig() {
   const providers = [
     { id: "stripe", name: "Stripe", blurb: "Card payments, subscriptions & payouts", connected: stripeS.status === "set", enabled: prov.stripe?.enabled ?? (stripeS.status === "set"), secretLast4: stripeS.last4, account: prov.stripe?.account || "" },
     { id: "paypal", name: "PayPal", blurb: "PayPal balance & checkout", connected: paypalConfigured(), enabled: prov.paypal?.enabled ?? paypalConfigured(), secretLast4: paypalS.last4, account: prov.paypal?.account || "" },
+    { id: "freemius", name: "Freemius", blurb: "Merchant of Record — hosted checkout", connected: freemiusConfigured(), enabled: prov.freemius?.enabled ?? freemiusConfigured(), account: prov.freemius?.account || "" },
     { id: "bank", name: "Bank transfer", blurb: "Manual / wire top-ups", connected: !!prov.bank?.connected, enabled: prov.bank?.enabled ?? false, account: prov.bank?.account || "" },
   ];
   const general = { ...GENERAL_DEFAULTS, ...settings.getJSON("general", {}) };
@@ -908,6 +913,35 @@ function buildPurchase(g, uid) {
   return { lineItems, metadata };
 }
 
+/* ----------------------------------------------------------------- Freemius */
+async function fulfilFreemius(p) {
+  if (!db) throw new Error("DB not configured");
+  const user = p.email ? await db.getUserByEmail(p.email) : null;
+  if (!user) { console.warn("[freemius] no DGRINGO user for", p.email, "— event", p.type); return; }
+  const uid = user.id;
+  if (p.type === "payment.created") {
+    const grant = fsGrantFor({ pricingId: p.pricingId, planId: p.planId, billingCycle: p.billingCycle });
+    if (!grant) { console.warn("[freemius] no grant mapped for pricing", p.pricingId, "plan", p.planId); return; }
+    if (grant.kind === "topup") {
+      const amt = grant.amount || p.amount;
+      if (!(amt > 0)) { console.warn("[freemius] top-up with no amount", p.id); return; }
+      await db.creditWallet(uid, amt, `Wallet top-up $${amt.toFixed(2)} (Freemius)`, `fs_${p.id}`);
+      await db.logActivity(uid, { kind: "wallet", title: "Top-up successful", body: `$${amt.toFixed(2)} added to your wallet.` });
+    } else if (grant.kind === "bundle") {
+      const b = bundleFor(grant.tier);
+      if (!b) { console.warn("[freemius] unknown bundle tier", grant.tier); return; }
+      await db.activateBundle(uid, {
+        tier: b.id, cycle: grant.cycle, minutes: b.minutes, sms: b.sms,
+        payMethod: "card", autoRenew: true,
+        amount: grant.cycle === "annual" ? b.annualTotal : b.monthly,
+      });
+      await db.logActivity(uid, { kind: "wallet", title: "Plan activated", body: `Your ${b.name} plan (${grant.cycle}) is now active.` });
+    }
+  } else if (p.type === "subscription.cancelled" || p.type === "subscription.renewal.failed") {
+    await db.markSubscriptionPastDue(uid);
+  }
+}
+
 /* ------------------------------------------------------ in-memory inbox store */
 // key: `${ownedE164}|${contactE164}`  →  thread object
 const threads = new Map();
@@ -1293,6 +1327,44 @@ createServer(async (req, res) => {
       console.error("[paypal] webhook fulfil failed:", e.message);
       return send(res, 500, { error: "fulfilment failed" });
     }
+  }
+
+  /* ------------------------------------------------- Freemius (MoR card rail) */
+  if (req.url?.startsWith("/api/freemius/config") && req.method === "GET") {
+    if (!freemiusConfigured()) return send(res, 503, { error: "Freemius is not configured" });
+    return send(res, 200, { productId: fsProductId(), publicKey: fsPublicKey(), checkouts: fsCheckouts() });
+  }
+  if (req.url?.startsWith("/api/freemius/webhook") && req.method === "POST") {
+    const raw = await readBody(req);
+    if (!freemiusConfigured()) return send(res, 503, { error: "Freemius is not configured" });
+    if (!fsVerifyWebhook(raw, req.headers["x-signature"])) {
+      console.warn("⚠ rejected Freemius webhook: invalid signature");
+      return send(res, 401, { error: "invalid signature" });
+    }
+    let evt; try { evt = JSON.parse(raw || "{}"); } catch { return send(res, 400, { error: "bad JSON" }); }
+    const parsed = fsParseEvent(evt);
+    const HANDLED = new Set(["payment.created", "subscription.cancelled", "subscription.renewal.failed"]);
+    if (!HANDLED.has(parsed.type)) return send(res, 200, { ok: true, ignored: parsed.type });
+    if (!db) return send(res, 503, { error: "Database not configured" });
+    let claimed = false;
+    try {
+      claimed = await db.recordFreemiusEvent(parsed.id);
+      if (!claimed) return send(res, 200, { ok: true, duplicate: true });
+      await fulfilFreemius(parsed);
+      return send(res, 200, { ok: true });
+    } catch (e) {
+      if (claimed) await db.unrecordFreemiusEvent(parsed.id);
+      console.error("[freemius] fulfil failed:", e.message);
+      return send(res, 500, { error: "fulfilment failed" });
+    }
+  }
+
+  /* ------------------------------------------- Combined payments config (both gateways) */
+  if (req.url?.startsWith("/api/payments/config") && req.method === "GET") {
+    return send(res, 200, {
+      paypal: { enabled: paypalConfigured(), clientId: paypalClientId() },
+      freemius: { enabled: freemiusConfigured(), productId: fsProductId(), publicKey: fsPublicKey(), checkouts: fsCheckouts() },
+    });
   }
 
   // 2b-2) Billing — the saved (masked) card + a hosted flow to change it.

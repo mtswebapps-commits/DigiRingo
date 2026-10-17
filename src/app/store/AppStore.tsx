@@ -19,7 +19,7 @@ import {
   apiGetActivity, apiLogActivity, apiMarkActivityRead, saveToken, clearToken, getToken, isNetworkError,
   type ApiUser, type ApiWallet, type ApiSubscription, type ApiCallLog, type ApiOwnedNumber, type ApiActivityItem,
 } from "../services/api";
-import { loadPaymentConfig, startCheckout, capturePaypalReturn } from "../services/paypal";
+import { loadPaymentsConfig, capturePaypalReturn } from "../services/payments";
 import { initOAuthCapture, onOAuthResult } from "../services/oauth";
 import { flushPushToken, isNative } from "../native";
 import {
@@ -581,7 +581,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // payments are ready. Also: if we're returning from a PayPal approval
   // (?pay=paypal&token=…), capture + fulfil server-side, then refresh + confirm.
   useEffect(() => {
-    loadPaymentConfig();
+    loadPaymentsConfig();
     capturePaypalReturn().then((r) => {
       if (r === "paid") { showToast("Payment received — updating your account…"); syncBillingSoon(); }
       else if (r === "cancelled") showToast("Payment cancelled", "error");

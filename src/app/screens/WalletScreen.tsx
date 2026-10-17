@@ -2,63 +2,54 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { ArrowLeft, ArrowDownLeft, ArrowUpRight, Plus, X, ShieldAlert, Loader2, CreditCard, RefreshCw } from "lucide-react";
 import { C, font, radius, gradients } from "../core/theme";
 import { useApp } from "../store/AppStore";
-import { startCheckout, paymentReady, supportsSavedCard } from "../services/paypal";
+import { anyPaymentReady, availableGateways, startGatewayCheckout, type Gateway } from "../services/payments";
 import { apiGetPaymentMethod, apiChangeCard, type ApiSavedCard } from "../services/api";
 
 interface Props { onBack?: () => void; onOpenTrust: () => void; desktop?: boolean; }
 
-// Quick top-up amounts (Stripe lets you charge ANY amount, so a custom amount is
-// also offered below).
 const PACKS = [5, 10, 20, 50];
 
-/**
- * Wallet — balance + top-up. Top-ups are real money via the Stripe hosted
- * checkout: the user picks a pack, pays on Stripe (card / PayPal on their
- * side), and the wallet is credited SERVER-SIDE by the fulfilment webhook. We
- * then poll the balance so it appears within a few seconds.
- */
 export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
-  const { state, addBalance, showToast } = useApp();
+  const { state, addBalance, showToast, syncBillingSoon } = useApp();
   const [sheet, setSheet] = useState(false);
-  const [busy, setBusy] = useState<number | null>(null); // amount currently checking out
+  const [busy, setBusy] = useState<number | null>(null);
   const [custom, setCustom] = useState("");
+  const [gateway, setGateway] = useState<Gateway>(availableGateways()[0] || "paypal");
+  const gateways = availableGateways();
   const unverified = state.numbers.filter((n) => n.verification !== "verified").length;
 
-  // Saved card on file (masked — Stripe holds the real card). Renewals charge it
-  // directly; here the user can see it and swap it via a hosted Stripe flow.
   const [card, setCard] = useState<ApiSavedCard | null>(null);
   const [cardLoaded, setCardLoaded] = useState(false);
   const [cardBusy, setCardBusy] = useState(false);
   useEffect(() => {
-    if (!supportsSavedCard()) { setCardLoaded(true); return; }
-    apiGetPaymentMethod()
-      .then((r) => setCard(r.card))
-      .catch(() => { /* section still renders with "no card" */ })
-      .finally(() => setCardLoaded(true));
+    setCardLoaded(true);
   }, []);
 
   const changeCard = async () => {
     setCardBusy(true);
     try {
       const { url } = await apiChangeCard();
-      window.location.href = url; // hosted Stripe setup page (card never touches us)
+      window.location.href = url;
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Couldn't start the card update", "error");
       setCardBusy(false);
     }
   };
 
-  // Fallback for local dev / mock (no Stripe configured): credit locally.
   const topUpSimulated = (amount: number) => { addBalance(amount); setSheet(false); showToast(`$${amount.toFixed(2)} added (test)`); };
 
   const topUp = async (amount: number) => {
     if (!(amount > 0)) { showToast("Enter an amount", "error"); return; }
-    if (!paymentReady()) { topUpSimulated(amount); return; }
+    if (!anyPaymentReady()) { topUpSimulated(amount); return; }
     setBusy(amount);
     try {
-      // Redirects to Stripe Checkout; the webhook credits the wallet, and we
-      // return to ?pay=success where the balance is refreshed.
-      await startCheckout({ kind: "topup", amount });
+      await startGatewayCheckout(gateway, { kind: "topup", amount }, { email: state.user?.email, name: state.user?.name });
+      if (gateway === "freemius") {
+        showToast("Payment received — updating your account…");
+        syncBillingSoon();
+        setBusy(null);
+        setSheet(false);
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Checkout failed", "error");
       setBusy(null);
@@ -86,44 +77,6 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
           </button>
         </div>
       </div>
-
-      {/* Payment method — a card on file for auto-renewals (Stripe only). Hidden
-          under PayPal, which manages the funding source on its own side. */}
-      {supportsSavedCard() && cardLoaded && (
-        <div style={{ padding: "0 20px 16px" }}>
-          <p style={{ color: C.text, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Payment method</p>
-          <div style={{ background: C.card, borderRadius: radius.lg, border: `1px solid ${C.lineSoft}`, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 12, background: "rgba(124,92,255,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <CreditCard size={20} color={C.blue} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {card ? (
-                <>
-                  <p style={{ color: C.text, fontSize: 14, fontWeight: 700, textTransform: "capitalize", fontFamily: font.mono }}>
-                    {card.brand} •••• {card.last4}
-                  </p>
-                  <p style={{ color: C.muted, fontSize: 11.5, marginTop: 2 }}>
-                    Expires {String(card.expMonth).padStart(2, "0")}/{String(card.expYear).slice(-2)} · used for auto-renewals
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>No card saved</p>
-                  <p style={{ color: C.muted, fontSize: 11.5, marginTop: 2 }}>Add a card so plans & numbers renew automatically</p>
-                </>
-              )}
-            </div>
-            <button onClick={changeCard} disabled={cardBusy} style={{
-              display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 11,
-              background: C.input, border: `1px solid ${C.line}`, color: C.text, fontSize: 12.5, fontWeight: 700,
-              cursor: cardBusy ? "default" : "pointer", fontFamily: font.sans, opacity: cardBusy ? 0.6 : 1, flexShrink: 0,
-            }}>
-              {cardBusy ? <Loader2 size={14} className="dg-spin" /> : <RefreshCw size={13} />}
-              {card ? "Change" : "Add card"}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Verification gating note */}
       {unverified > 0 && (
@@ -158,8 +111,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
         </div>
       </div>
 
-      {/* Top-up sheet — pick a pack; pay on Stripe. Centered dialog on desktop,
-          bottom sheet on mobile. */}
+      {/* Top-up sheet */}
       {sheet && (
         <div onClick={(e) => e.target === e.currentTarget && busy === null && setSheet(false)} style={{
           position: desktop ? "fixed" : "absolute", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)",
@@ -179,8 +131,25 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
               <button onClick={() => busy === null && setSheet(false)} style={{ width: 34, height: 34, borderRadius: 11, background: C.input, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={16} color={C.muted} /></button>
             </div>
             <p style={{ color: C.muted, fontSize: 12.5, marginBottom: 16, lineHeight: 1.5 }}>
-              Choose an amount and pay securely with PayPal{paymentReady() ? "" : " (test mode)"}. Your balance updates as soon as the payment is confirmed.
+              Choose an amount and pay securely{anyPaymentReady() ? "" : " (test mode)"}. Your balance updates as soon as the payment is confirmed.
             </p>
+
+            {gateways.length > 1 && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                {gateways.map((gw) => (
+                  <button key={gw} onClick={() => setGateway(gw)} style={{
+                    flex: 1, padding: "10px 12px", borderRadius: 10, textAlign: "center",
+                    cursor: "pointer", fontFamily: font.sans, fontSize: 13, fontWeight: 700,
+                    background: gateway === gw ? "rgba(124,92,255,0.12)" : C.input,
+                    border: `1.5px solid ${gateway === gw ? C.blue : C.line}`,
+                    color: gateway === gw ? C.text : C.muted,
+                  }}>
+                    {gw === "paypal" ? "PayPal" : "Freemius"}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {PACKS.map((p) => {
                 const isBusy = busy === p;
@@ -199,7 +168,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
               })}
             </div>
 
-            {/* Custom amount (Stripe supports any amount) */}
+            {/* Custom amount */}
             <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", margin: "16px 0 8px" }}>Or enter an amount</p>
             <div style={{ display: "flex", gap: 10 }}>
               <div style={{ flex: 1, display: "flex", alignItems: "center", background: C.input, border: `1.5px solid ${C.line}`, borderRadius: radius.md, padding: "0 14px" }}>
