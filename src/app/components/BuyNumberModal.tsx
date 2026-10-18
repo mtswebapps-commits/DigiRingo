@@ -109,8 +109,8 @@ function OverflowNote() {
       display: "flex", gap: 9,
     }}>
       <AlertTriangle size={15} color={C.amber} style={{ flexShrink: 0, marginTop: 1 }} />
-      <p style={{ color: "rgba(238,240,246,0.72)", fontSize: 11.5, lineHeight: 1.5 }}>
-        When your plan's minutes/SMS run out you can keep going on <b style={{ color: C.text }}>pay-as-you-go</b> — extra
+      <p style={{ color: C.text, fontSize: 11.5, lineHeight: 1.5 }}>
+        When your plan's minutes/SMS run out you can keep going on <b style={{ color: C.amber }}>pay-as-you-go</b> — extra
         usage is billed from your wallet. We'll alert you before you get there so you can upgrade. Card auto-reload
         (${RENTAL_PRICE.toFixed(2)}) turns on once card billing is enabled.
       </p>
