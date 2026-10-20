@@ -3,7 +3,7 @@ import { ArrowLeft, Check, Wallet, CreditCard, X, Sparkles, Loader2 } from "luci
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import { BUNDLES, bundlePrice, getBundle, type Bundle, type BillingCycle, type PayMethod } from "../core/plans";
-import { anyPaymentReady, availableGateways, startGatewayCheckout, type Gateway } from "../services/payments";
+import { anyPaymentReady, startGatewayCheckout, type Gateway } from "../services/payments";
 
 interface Props { onBack: () => void; onTopUp: () => void; }
 
@@ -187,8 +187,7 @@ export function PaySheet({ bundle, cycle, walletBalance, onClose, onWallet, onCa
   const { state, showToast, syncBillingSoon } = useApp();
   const [pay, setPay] = useState<PayMethod>("wallet");
   const [busy, setBusy] = useState(false);
-  const [gateway, setGateway] = useState<Gateway>(availableGateways()[0] || "paypal");
-  const gateways = availableGateways();
+  const gateway: Gateway = "freemius";
   const price = bundlePrice(bundle, cycle);
   const enough = walletBalance >= price;
 
@@ -247,24 +246,9 @@ export function PaySheet({ bundle, cycle, walletBalance, onClose, onWallet, onCa
           )
         ) : (
           <>
-            {gateways.length > 1 && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                {gateways.map((gw) => (
-                  <button key={gw} onClick={() => setGateway(gw)} style={{
-                    flex: 1, padding: "10px 12px", borderRadius: 10, textAlign: "center",
-                    cursor: "pointer", fontFamily: font.sans, fontSize: 13, fontWeight: 700,
-                    background: gateway === gw ? "rgba(124,92,255,0.12)" : C.input,
-                    border: `1.5px solid ${gateway === gw ? C.blue : C.line}`,
-                    color: gateway === gw ? C.text : C.muted,
-                  }}>
-                    {gw === "paypal" ? "PayPal" : "Freemius"}
-                  </button>
-                ))}
-              </div>
-            )}
             <p style={{ color: C.muted, fontSize: 12, marginBottom: 12, textAlign: "center" }}>Pay <b style={{ color: C.text }}>${price.toFixed(cycle === "annual" ? 0 : 2)}</b> securely by card — renews automatically.</p>
             <button disabled={busy} onClick={payByCard} style={{ ...primaryBtn, opacity: busy ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              {busy ? <><Loader2 size={17} className="dg-spin" /> Opening checkout…</> : <><CreditCard size={17} /> Pay with {gateway === "paypal" ? "PayPal" : "Freemius"}</>}
+              {busy ? <><Loader2 size={17} className="dg-spin" /> Opening checkout…</> : <><CreditCard size={17} /> Pay by card</>}
             </button>
           </>
         )}

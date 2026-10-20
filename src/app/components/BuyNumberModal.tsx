@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { X, ChevronDown, Check, Search, Loader2, Wallet, CreditCard, Gift, Sparkles, AlertTriangle } from "lucide-react";
 import { BUNDLES, bundlePrice, getBundle, NUMBER_RENTAL, type BundleId, type BillingCycle } from "../core/plans";
 import type { Subscription } from "../core/types";
-import { anyPaymentReady, availableGateways, startGatewayCheckout, type Gateway } from "../services/payments";
+import { anyPaymentReady, type Gateway } from "../services/payments";
 
 const C = {
   bg: "var(--dg-bg)", card: "var(--dg-card)", input: "var(--dg-input)", line: "var(--dg-line)",
@@ -132,8 +132,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
   const [step, setStep] = useState<"pick" | "pay">("pick");
   const [pay, setPay] = useState<"wallet" | "card">("wallet");
   const [busy, setBusy] = useState(false);
-  const [gateway, setGateway] = useState<Gateway>(availableGateways()[0] || "paypal");
-  const gateways = availableGateways();
+  const gateway: Gateway = "freemius";
 
   const load = useCallback(async (iso: string, type: NumType, ac: string) => {
     setLoading(true); setSelected(null); setPickedTier(null);
@@ -194,8 +193,6 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
     if (payingPlan && pickedTier) {
       onCardPlanAndBuy(chosenNumber, pickedTier, cycle);
       onClose();
-    } else {
-      startGatewayCheckout(gateway, { kind: "number", phone: chosenNumber.e164, numberKind: "local" }).catch(() => {});
     }
   };
 
@@ -549,8 +546,8 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
             <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 0.8, textTransform: "uppercase" }}>Pay with</p>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <PayTab active={pay === "wallet"} onClick={() => setPay("wallet")} Icon={Wallet} title="Wallet" sub={`Balance $${walletBalance.toFixed(2)}`} />
-              {(payingPlan || mode === "paidExtra") && (
-                <PayTab active={pay === "card"} onClick={() => setPay("card")} Icon={CreditCard} title="Card" sub={payingPlan ? "Renews auto" : "Card or balance"} disabled={!anyPaymentReady()} />
+              {payingPlan && (
+                <PayTab active={pay === "card"} onClick={() => setPay("card")} Icon={CreditCard} title="Card" sub="Renews auto" disabled={!anyPaymentReady()} />
               )}
             </div>
 
@@ -580,26 +577,11 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
               </>
             ) : (
               <>
-                {gateways.length > 1 && (
-                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                    {gateways.map((gw) => (
-                      <button key={gw} onClick={() => setGateway(gw)} style={{
-                        flex: 1, padding: "10px 12px", borderRadius: 10, textAlign: "center",
-                        cursor: "pointer", fontFamily: "'Inter',sans-serif", fontSize: 13, fontWeight: 700,
-                        background: gateway === gw ? "rgba(124,92,255,0.12)" : C.input,
-                        border: `1.5px solid ${gateway === gw ? C.blue : "rgba(255,255,255,0.07)"}`,
-                        color: gateway === gw ? C.text : C.muted,
-                      }}>
-                        {gw === "paypal" ? "PayPal" : "Freemius"}
-                      </button>
-                    ))}
-                  </div>
-                )}
                 <p style={{ color: C.muted, fontSize: 12, marginBottom: 12, textAlign: "center" }}>
                   {payingPlan ? (
-                    <>You'll be redirected to a secure card checkout for <b style={{ color: C.text }}>${planPart.toFixed(cycle === "annual" ? 0 : 2)}</b> (plan) + <b style={{ color: C.text }}>${RENTAL_PRICE.toFixed(2)}</b> (number). The plan auto-renews.</>
+                    <>Pay <b style={{ color: C.text }}>${planPart.toFixed(cycle === "annual" ? 0 : 2)}</b> for the plan by card (auto-renews). The number (<b style={{ color: C.text }}>${RENTAL_PRICE.toFixed(2)}/mo</b>) will be charged from your wallet.</>
                   ) : (
-                    <>You'll be redirected to a secure card checkout for the number (<b style={{ color: C.text }}>${RENTAL_PRICE.toFixed(2)}/mo</b>).</>
+                    <>The number (<b style={{ color: C.text }}>${RENTAL_PRICE.toFixed(2)}/mo</b>) will be charged from your wallet.</>
                   )}
                 </p>
                 <div style={{ display: "flex", gap: 10 }}>
@@ -614,7 +596,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, subscription,
                       display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                     }}
                   >
-                    <CreditCard size={16} /> Pay with {gateway === "paypal" ? "PayPal" : "Freemius"}
+                    <CreditCard size={16} /> Pay by card
                   </button>
                 </div>
               </>

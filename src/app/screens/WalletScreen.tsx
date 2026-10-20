@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { ArrowLeft, ArrowDownLeft, ArrowUpRight, Plus, X, ShieldAlert, Loader2, CreditCard, RefreshCw } from "lucide-react";
 import { C, font, radius, gradients } from "../core/theme";
 import { useApp } from "../store/AppStore";
-import { anyPaymentReady, availableGateways, startGatewayCheckout, type Gateway } from "../services/payments";
+import { anyPaymentReady, startGatewayCheckout, type Gateway } from "../services/payments";
 import { apiGetPaymentMethod, apiChangeCard, type ApiSavedCard } from "../services/api";
 
 interface Props { onBack?: () => void; onOpenTrust: () => void; desktop?: boolean; }
@@ -13,9 +13,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
   const { state, addBalance, showToast, syncBillingSoon } = useApp();
   const [sheet, setSheet] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
-  const [custom, setCustom] = useState("");
-  const [gateway, setGateway] = useState<Gateway>(availableGateways()[0] || "paypal");
-  const gateways = availableGateways();
+  const gateway: Gateway = "freemius";
   const unverified = state.numbers.filter((n) => n.verification !== "verified").length;
 
   const [card, setCard] = useState<ApiSavedCard | null>(null);
@@ -134,22 +132,6 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
               Choose an amount and pay securely{anyPaymentReady() ? "" : " (test mode)"}. Your balance updates as soon as the payment is confirmed.
             </p>
 
-            {gateways.length > 1 && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-                {gateways.map((gw) => (
-                  <button key={gw} onClick={() => setGateway(gw)} style={{
-                    flex: 1, padding: "10px 12px", borderRadius: 10, textAlign: "center",
-                    cursor: "pointer", fontFamily: font.sans, fontSize: 13, fontWeight: 700,
-                    background: gateway === gw ? "rgba(124,92,255,0.12)" : C.input,
-                    border: `1.5px solid ${gateway === gw ? C.blue : C.line}`,
-                    color: gateway === gw ? C.text : C.muted,
-                  }}>
-                    {gw === "paypal" ? "PayPal" : "Freemius"}
-                  </button>
-                ))}
-              </div>
-            )}
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {PACKS.map((p) => {
                 const isBusy = busy === p;
@@ -166,20 +148,6 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
                   </button>
                 );
               })}
-            </div>
-
-            {/* Custom amount */}
-            <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", margin: "16px 0 8px" }}>Or enter an amount</p>
-            <div style={{ display: "flex", gap: 10 }}>
-              <div style={{ flex: 1, display: "flex", alignItems: "center", background: C.input, border: `1.5px solid ${C.line}`, borderRadius: radius.md, padding: "0 14px" }}>
-                <span style={{ color: C.muted, fontSize: 18, fontWeight: 800 }}>$</span>
-                <input value={custom} onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))} placeholder="25.00" inputMode="decimal"
-                  style={{ flex: 1, padding: "14px 8px", background: "transparent", border: "none", color: C.text, fontSize: 18, fontWeight: 700, outline: "none", fontFamily: font.sans }} />
-              </div>
-              <button onClick={() => { const a = Math.round(parseFloat(custom) * 100) / 100; if (a > 0) topUp(a); }} disabled={busy !== null || !(parseFloat(custom) > 0)} style={{
-                padding: "0 22px", borderRadius: radius.md, border: "none", cursor: busy !== null || !(parseFloat(custom) > 0) ? "not-allowed" : "pointer",
-                background: parseFloat(custom) > 0 ? gradients.brand : C.input, color: parseFloat(custom) > 0 ? "#fff" : C.muted, fontSize: 14, fontWeight: 800, fontFamily: font.sans,
-              }}>Top up</button>
             </div>
           </div>
         </div>
