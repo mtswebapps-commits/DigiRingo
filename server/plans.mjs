@@ -19,7 +19,11 @@ export const PAYG_RELOAD = 3.99;
  * Pay-as-you-go unit rates used to bill usage BEYOND a plan's included pool
  * (drawn from the wallet). Mirrors USAGE_RATES in src/app/core/plans.ts.
  */
-export const OVERFLOW_RATES = { voice: 0.015, sms: 0.015 };
+/** Markup applied to all Telnyx wholesale costs (150% = customer pays 2.5× cost). */
+export const MARKUP_PCT = Number(process.env.MARKUP_PCT ?? 150);
+const markup = (cost, decimals = 3) => Math.round(cost * (1 + MARKUP_PCT / 100) * 10 ** decimals) / 10 ** decimals;
+
+export const OVERFLOW_RATES = { voice: markup(0.006), sms: markup(0.006) };
 
 // Each bundle includes ONE free number and allows a capped number of extra
 // numbers (billed at NUMBER_RENTAL) that all share the plan's minute/SMS pool.

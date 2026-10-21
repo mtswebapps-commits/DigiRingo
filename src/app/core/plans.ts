@@ -13,6 +13,8 @@
  * these values must match server/plans.mjs.
  */
 
+import { retailPrice } from "./pricing";
+
 export type BundleId = "starter" | "business" | "pro";
 export type BillingCycle = "monthly" | "annual";
 export type NumberKind = "local" | "tollfree";
@@ -101,14 +103,14 @@ export interface UsageRate {
   unit: string;
 }
 
-/** Pay-as-you-go usage rates — pooled across every number on the account. */
+/** Pay-as-you-go usage rates — Telnyx wholesale + markup, pooled across every number. */
 export const USAGE_RATES: UsageRate[] = [
-  { key: "voice", label: "Voice — in & out", price: 0.015, unit: "/min" },
-  { key: "sms_local", label: "Local SMS", price: 0.015, unit: "/msg" },
-  { key: "sms_tollfree", label: "Toll-free SMS", price: 0.02, unit: "/msg" },
-  { key: "sms_shortcode", label: "Short-code SMS", price: 0.025, unit: "/msg" },
-  { key: "mms_out", label: "MMS — outbound", price: 0.045, unit: "/msg" },
-  { key: "mms_in", label: "MMS — inbound", price: 0.015, unit: "/msg" },
+  { key: "voice", label: "Voice — in & out", price: retailPrice(0.006, 3), unit: "/min" },
+  { key: "sms_local", label: "Local SMS", price: retailPrice(0.006, 3), unit: "/msg" },
+  { key: "sms_tollfree", label: "Toll-free SMS", price: retailPrice(0.008, 3), unit: "/msg" },
+  { key: "sms_shortcode", label: "Short-code SMS", price: retailPrice(0.01, 3), unit: "/msg" },
+  { key: "mms_out", label: "MMS — outbound", price: retailPrice(0.018, 3), unit: "/msg" },
+  { key: "mms_in", label: "MMS — inbound", price: retailPrice(0.006, 3), unit: "/msg" },
 ];
 
 /** The price charged for a bundle on the given cycle. */
