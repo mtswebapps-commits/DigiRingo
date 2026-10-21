@@ -10,7 +10,7 @@ import { initialState } from "./seed";
 import { telnyx } from "../services/telnyx";
 import { toAppNumber, ownedToAppNumber, toAppConversation, toAppCall, availableToApp } from "../services/telnyx/adapt";
 import type { ConversationThread } from "../services/telnyx/types";
-import { retailPrice } from "../core/pricing";
+
 import { getBundle, NUMBER_RENTAL } from "../core/plans";
 import type { BillingCycle, NumberKind, PayMethod } from "../core/plans";
 import {
@@ -1081,7 +1081,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       return list.map((a) => {
         const { number, price, sms, voice } = availableToApp(a);
-        return { e164: a.phone_number, number, price: retailPrice(price), sms, voice };
+        return { e164: a.phone_number, number, price, sms, voice };
       });
     } catch {
       showToast("Couldn't load numbers — try again", "error");
