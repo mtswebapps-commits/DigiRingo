@@ -8,6 +8,7 @@ import type {
   PhoneNumber, ISOCountry, NumberSettings, Conversation, CallLog, MessageDeliveryStatus,
 } from "../../core/types";
 import { NUMBER_RENTAL } from "../../core/plans";
+import { retailPrice } from "../../core/pricing";
 import type {
   PhoneNumberDetailed, AvailablePhoneNumber, Balance, ConversationThread,
   DetailRecord, MessageStatus,
@@ -166,7 +167,7 @@ export function availableToApp(a: AvailablePhoneNumber): { number: string; price
   const has = (n: string) => a.features.some((f) => f.name === n);
   return {
     number: formatE164(a.phone_number),
-    price: parseFloat(a.cost_information.monthly_cost ?? "0"),
+    price: retailPrice(parseFloat(a.cost_information.monthly_cost ?? "0")),
     sms: has("sms"),
     voice: has("voice"),
   };
