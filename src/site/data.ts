@@ -3,6 +3,7 @@
  * be tuned without touching layout. `shot` paths point at /public/shots/*.png —
  * real app captures (see scripts that screenshot the running app).
  */
+import { retailPrice } from "../app/core/pricing";
 
 export const NAV = [
   { label: "Home", to: "/" },
@@ -25,7 +26,7 @@ export const COUNTRIES = [
 export const STATS = [
   { num: "8+", label: "Countries with local numbers" },
   { num: "60s", label: "From sign-up to your first number" },
-  { num: "$2.99", label: "Local numbers per month" },
+  { num: `$${retailPrice(1.0).toFixed(2)}`, label: "Local numbers per month" },
   { num: "100%", label: "App-based — no SIM, no contract" },
 ];
 
@@ -71,18 +72,18 @@ export const STEPS = [
 
 /** Flat monthly rental per number. */
 export const NUMBER_RENTAL = [
-  { type: "Local number", price: "$2.99", unit: "/mo" },
-  { type: "Toll-free number", price: "$4.99", unit: "/mo" },
+  { type: "Local number", price: `$${retailPrice(1.0).toFixed(2)}`, unit: "/mo" },
+  { type: "Toll-free number", price: `$${retailPrice(2.0).toFixed(2)}`, unit: "/mo" },
 ];
 
 /** Pay-as-you-go usage rates — pooled across every number on the account. */
 export const USAGE_RATES = [
-  { item: "Voice — in & out", price: "$0.015", unit: "/min" },
-  { item: "Local SMS", price: "$0.015", unit: "/msg" },
-  { item: "Toll-free SMS", price: "$0.02", unit: "/msg" },
-  { item: "Short-code SMS", price: "$0.025", unit: "/msg" },
-  { item: "MMS — outbound", price: "$0.045", unit: "/msg" },
-  { item: "MMS — inbound", price: "$0.015", unit: "/msg" },
+  { item: "Voice — in & out", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/min" },
+  { item: "Local SMS", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/msg" },
+  { item: "Toll-free SMS", price: `$${retailPrice(0.008, 3).toFixed(3)}`, unit: "/msg" },
+  { item: "Short-code SMS", price: `$${retailPrice(0.01, 3).toFixed(3)}`, unit: "/msg" },
+  { item: "MMS — outbound", price: `$${retailPrice(0.018, 3).toFixed(3)}`, unit: "/msg" },
+  { item: "MMS — inbound", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/msg" },
 ];
 
 export const FAQS = [
@@ -100,7 +101,7 @@ export const FAQS = [
   },
   {
     q: "How does billing work?",
-    a: "DIGIRINGO is pure pay-as-you-go. Top up your wallet, rent a number ($2.99/mo local, $4.99/mo toll-free) and pay only for what you use — voice from $0.015/min, SMS from $0.015/msg, all drawn from your prepaid wallet. No plans, no commitments, no surprise bills.",
+    a: `DIGIRINGO is pure pay-as-you-go. Top up your wallet, rent a number ($${retailPrice(1.0).toFixed(2)}/mo local, $${retailPrice(2.0).toFixed(2)}/mo toll-free) and pay only for what you use — voice from $${retailPrice(0.006, 3).toFixed(3)}/min, SMS from $${retailPrice(0.006, 3).toFixed(3)}/msg, all drawn from your prepaid wallet. No plans, no commitments, no surprise bills.`,
   },
   {
     q: "How do I add credit?",

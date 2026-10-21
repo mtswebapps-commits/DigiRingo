@@ -160,9 +160,9 @@ export function DashNumbers({ onBuyNumber, onOpenSettings, onOpenInbox }: { onBu
   const [releasing, setReleasing] = useState(false);
   const confirmNum = nums.find((n) => n.id === confirmId);
   return (
-    <Panel title={`Your numbers (${nums.length})`} sub="$2.99/mo each — pay-as-you-go" action={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={16} /> New number</button>} bodyPad={nums.length ? 8 : 0}>
+    <Panel title={`Your numbers (${nums.length})`} sub={`$${NUMBER_RENTAL.local.toFixed(2)}/mo each — pay-as-you-go`} action={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={16} /> New number</button>} bodyPad={nums.length ? 8 : 0}>
       {nums.length === 0 ? (
-        <Empty icon="📱" title="No numbers yet" hint="Get your first number — $2.99/mo, pay-as-you-go." cta={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={15} /> Get a number</button>} />
+        <Empty icon="📱" title="No numbers yet" hint={`Get your first number — $${NUMBER_RENTAL.local.toFixed(2)}/mo, pay-as-you-go.`} cta={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={15} /> Get a number</button>} />
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>

@@ -84,8 +84,8 @@ export const BUNDLES: Bundle[] = [
 
 /** Flat monthly rental for EXTRA numbers on a plan (beyond the free one). */
 export const NUMBER_RENTAL: Record<NumberKind, number> = {
-  local: 2.99,
-  tollfree: 4.99,
+  local: retailPrice(1.0),
+  tollfree: retailPrice(2.0),
 };
 
 /**

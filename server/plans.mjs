@@ -5,23 +5,14 @@
  * client: it looks the amount up here. Keep the two files in sync.
  */
 
-/** Flat monthly rental for EXTRA numbers on a plan (beyond the free one). */
-export const NUMBER_RENTAL = { local: 2.99, tollfree: 4.99 };
-
-/**
- * When a plan's included minutes/SMS run out and the wallet can't cover the
- * pay-as-you-go overflow, this is the amount we auto-reload onto the wallet from
- * the user's card (once card-on-file billing / PayPal Business is live).
- */
-export const PAYG_RELOAD = 3.99;
-
-/**
- * Pay-as-you-go unit rates used to bill usage BEYOND a plan's included pool
- * (drawn from the wallet). Mirrors USAGE_RATES in src/app/core/plans.ts.
- */
 /** Markup applied to all Telnyx wholesale costs (150% = customer pays 2.5× cost). */
 export const MARKUP_PCT = Number(process.env.MARKUP_PCT ?? 150);
 const markup = (cost, decimals = 3) => Math.round(cost * (1 + MARKUP_PCT / 100) * 10 ** decimals) / 10 ** decimals;
+
+/** Flat monthly rental — Telnyx wholesale + markup. */
+export const NUMBER_RENTAL = { local: markup(1.0, 2), tollfree: markup(2.0, 2) };
+
+export const PAYG_RELOAD = 3.99;
 
 export const OVERFLOW_RATES = { voice: markup(0.006), sms: markup(0.006) };
 

@@ -7,6 +7,7 @@
 import type {
   PhoneNumber, ISOCountry, NumberSettings, Conversation, CallLog, MessageDeliveryStatus,
 } from "../../core/types";
+import { NUMBER_RENTAL } from "../../core/plans";
 import type {
   PhoneNumberDetailed, AvailablePhoneNumber, Balance, ConversationThread,
   DetailRecord, MessageStatus,
@@ -60,7 +61,7 @@ export function toAppNumber(
     country: prev?.country ?? c.name,
     sms: prev?.sms ?? extras?.sms ?? true,
     voice: prev?.voice ?? extras?.voice ?? true,
-    price: prev?.price ?? extras?.price ?? 2.99,
+    price: prev?.price ?? extras?.price ?? NUMBER_RENTAL.local,
     verification: prev?.verification ?? (pn.status === "active" ? "unverified" : "pending"),
     settings: prev?.settings ?? defaultSettings("New Number"),
   };
