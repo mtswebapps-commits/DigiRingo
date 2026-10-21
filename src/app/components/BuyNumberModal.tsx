@@ -8,7 +8,7 @@ const C = {
   text: "var(--dg-text)", muted: "var(--dg-muted)", red: "#ef4444",
 };
 
-const RENTAL_PRICE = NUMBER_RENTAL.local;
+const FALLBACK_PRICE = NUMBER_RENTAL.local;
 
 const COUNTRIES = [
   { iso:"US", flag:"🇺🇸", name:"United States", code:"+1"  },
@@ -78,7 +78,8 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
   useEffect(() => { load(country.iso, numType, areaCode); /* eslint-disable-next-line */ }, [country.iso, numType]);
 
   const chosenNumber = results.find((n) => n.number === selected) ?? null;
-  const enough = walletBalance >= RENTAL_PRICE;
+  const numPrice = chosenNumber?.price ?? FALLBACK_PRICE;
+  const enough = walletBalance >= numPrice;
 
   const completeWallet = async () => {
     if (!chosenNumber) return;
@@ -120,7 +121,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
             <h2 style={{ color: C.text, fontSize: 19, fontWeight: 800 }}>
               {step === "pay" ? "Confirm & Pay" : "Get a Number"}
             </h2>
-            {step === "pick" && <p style={{ color: C.muted, fontSize: 12, marginTop: 3 }}>Pick a number — ${RENTAL_PRICE.toFixed(2)}/mo from your wallet</p>}
+            {step === "pick" && <p style={{ color: C.muted, fontSize: 12, marginTop: 3 }}>Pick a number — pricing varies by country</p>}
           </div>
           <button onClick={onClose} style={{
             width: 34, height: 34, borderRadius: 11,
@@ -246,7 +247,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
                         </div>
                       </div>
                       <span style={{ display: "flex", alignItems: "baseline", gap: 1, color: C.text, fontSize: 13.5, fontWeight: 800 }}>
-                        ${RENTAL_PRICE.toFixed(2)}<span style={{ color: C.muted, fontSize: 10, fontWeight: 600 }}>/mo</span>
+                        ${n.price.toFixed(2)}<span style={{ color: C.muted, fontSize: 10, fontWeight: 600 }}>/mo</span>
                       </span>
                     </button>
                   );
@@ -270,7 +271,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
                   boxShadow: "0 6px 20px rgba(124,92,255,0.4)",
                 }}
               >
-                Continue · ${RENTAL_PRICE.toFixed(2)}/mo →
+                Continue · ${numPrice.toFixed(2)}/mo →
               </button>
             )}
           </div>
@@ -290,9 +291,9 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
               </div>
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 9 }}>
                 {[
-                  { k: "Number rental", v: `$${RENTAL_PRICE.toFixed(2)}/mo` },
+                  { k: "Number rental", v: `$${numPrice.toFixed(2)}/mo` },
                   { k: "Usage", v: "Pay-as-you-go from wallet" },
-                  { k: "Total today", v: `$${RENTAL_PRICE.toFixed(2)}` },
+                  { k: "Total today", v: `$${numPrice.toFixed(2)}` },
                 ].map(({ k, v }) => (
                   <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ color: C.muted, fontSize: 13 }}>{k}</span>
@@ -320,7 +321,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
 
             {!enough && (
               <p style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>
-                Not enough balance — top up ${(RENTAL_PRICE - walletBalance).toFixed(2)} more from the Wallet tab, then come back.
+                Not enough balance — top up ${(numPrice - walletBalance).toFixed(2)} more from the Wallet tab, then come back.
               </p>
             )}
             <div style={{ display: "flex", gap: 10 }}>
@@ -342,7 +343,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
                     opacity: busy ? 0.7 : 1,
                   }}
                 >
-                  {busy ? "Processing…" : `Pay $${RENTAL_PRICE.toFixed(2)} from wallet`}
+                  {busy ? "Processing…" : `Pay $${numPrice.toFixed(2)} from wallet`}
                 </button>
               ) : (
                 <button

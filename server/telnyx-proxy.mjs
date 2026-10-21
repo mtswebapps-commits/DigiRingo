@@ -1864,7 +1864,18 @@ createServer(async (req, res) => {
     if (cap.atCap) return send(res, 403, { error: `You've reached your plan's limit of ${cap.max} numbers. Upgrade to add more.`, atCap: true });
 
     const free = !!cap.isFree;
-    const amount = free ? 0 : numberPrice(kind);   // authoritative — never trust client
+    // Look up actual Telnyx wholesale cost for this number and apply markup.
+    let wholesaleCost = kind === "tollfree" ? 2.0 : 1.0;
+    try {
+      const lookupUrl = `https://api.telnyx.com/v2/available_phone_numbers?filter[phone_number]=${encodeURIComponent(phoneNumber)}&filter[limit]=1`;
+      const lr = await fetch(lookupUrl, { headers: { Authorization: `Bearer ${telnyxKey()}` } });
+      if (lr.ok) {
+        const ld = await lr.json();
+        const mc = ld?.data?.[0]?.cost_information?.monthly_cost;
+        if (mc) wholesaleCost = parseFloat(mc);
+      }
+    } catch { /* fall back to default wholesale */ }
+    const amount = free ? 0 : markup(wholesaleCost, 2);
     const label = free ? `Number ${phoneNumber} (free with plan)` : `Extra number ${phoneNumber} (${kind})`;
 
     // 1) take payment for EXTRA numbers only (the included one is free). Extra
