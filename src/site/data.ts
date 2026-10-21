@@ -69,76 +69,10 @@ export const STEPS = [
   { n: "04", title: "Call & text away", body: "Your new number is live instantly. Start messaging and calling." },
 ];
 
-/**
- * DIGIRINGO pricing — mirrors the app's canonical catalog (src/app/core/plans.ts).
- * Keep the two in sync: these are the numbers shown to customers, the app charges
- * from the same values.
- *
- * How it works:
- *   • Every number comes with a PLAN — pick Starter, Business or Pro (monthly or
- *     annual). Each plan is a pool of minutes + SMS; numbers are added at
- *     $2.99/mo each (toll-free $4.99/mo) up to the plan's cap.
- *   • When a plan's pool runs out you keep going pay-as-you-go (USAGE_RATES),
- *     funded from the wallet — and we alert you near the limit so you can upgrade.
- */
-export const PRICING = [
-  {
-    name: "Starter",
-    monthly: 9.99,
-    yearly: 8.25,      // effective /mo when billed annually
-    yearlyTotal: 99,   // single upfront annual charge
-    unit: "/mo",
-    tagline: "A second line with room to grow.",
-    cta: "Get Starter",
-    featured: false,
-    features: [
-      "Add numbers for $2.99/mo each (up to 3)",
-      "300 minutes / mo",
-      "300 SMS / mo",
-      "Overage at pay-as-you-go rates",
-      "Email support",
-    ],
-  },
-  {
-    name: "Business",
-    monthly: 24.99,
-    yearly: 20.75,
-    yearlyTotal: 249,
-    unit: "/mo",
-    tagline: "For teams that live on calls & texts.",
-    cta: "Get Business",
-    featured: true, // Most popular
-    features: [
-      "Add numbers for $2.99/mo each (up to 5)",
-      "1,000 minutes / mo",
-      "1,000 SMS / mo",
-      "Overage at pay-as-you-go rates",
-      "Priority support",
-    ],
-  },
-  {
-    name: "Pro",
-    monthly: 49.99,
-    yearly: 41.58,
-    yearlyTotal: 499,
-    unit: "/mo",
-    tagline: "High volume, toll-free ready.",
-    cta: "Get Pro",
-    featured: false,
-    features: [
-      "Add numbers for $2.99/mo each (up to 10)",
-      "3,000 minutes / mo",
-      "3,000 SMS / mo",
-      "Overage at pay-as-you-go rates",
-      "Priority support",
-    ],
-  },
-];
-
-/** Flat monthly rental for EXTRA numbers on a plan (the first comes with the plan). */
+/** Flat monthly rental per number. */
 export const NUMBER_RENTAL = [
-  { type: "Extra local number", price: "$2.99", unit: "/mo" },
-  { type: "Extra toll-free number", price: "$4.99", unit: "/mo" },
+  { type: "Local number", price: "$2.99", unit: "/mo" },
+  { type: "Toll-free number", price: "$4.99", unit: "/mo" },
 ];
 
 /** Pay-as-you-go usage rates — pooled across every number on the account. */
@@ -166,15 +100,11 @@ export const FAQS = [
   },
   {
     q: "How does billing work?",
-    a: "Every number comes with a plan — you pick Starter, Business or Pro (billed monthly, or annually with 2 months free). Your plan is a pool of minutes and SMS, and you can add numbers at $2.99/mo each (local; $4.99/mo toll-free) up to the plan's limit. When your included minutes or SMS run out you simply keep going pay-as-you-go — voice from $0.015/min, SMS from $0.015/msg, drawn from your prepaid wallet. You can pay for a plan or an extra number straight from the wallet, or directly by card.",
+    a: "DIGIRINGO is pure pay-as-you-go. Top up your wallet, rent a number ($2.99/mo local, $4.99/mo toll-free) and pay only for what you use — voice from $0.015/min, SMS from $0.015/msg, all drawn from your prepaid wallet. No plans, no commitments, no surprise bills.",
   },
   {
-    q: "What happens when I hit my plan limit?",
-    a: "We watch your usage and alert you inside the app (and web app) as you approach your plan's limit, so you can upgrade in a tap. If you keep going after the pool runs out, extra usage is billed pay-as-you-go from your wallet at standard rates — you're never cut off mid-conversation. Upgrading to a bigger plan gives you more included minutes, SMS and numbers.",
-  },
-  {
-    q: "Can I pay from my wallet or by card?",
-    a: "Both. Every purchase — a plan, an extra number, or a wallet top-up — can be paid straight from your prepaid wallet balance, or directly by card. Pay-as-you-go usage beyond your plan is always drawn from the wallet, so keeping a little balance means you're never cut off mid-conversation.",
+    q: "How do I add credit?",
+    a: "Open your wallet and pick a top-up pack ($5, $10, $20 or $50). Payment is processed securely by card — your balance updates instantly and every charge is itemised in your transaction history.",
   },
   {
     q: "Can I send business SMS?",

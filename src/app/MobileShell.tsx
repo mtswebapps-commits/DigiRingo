@@ -24,14 +24,14 @@ import { NumberSettingsScreen } from "./screens/NumberSettingsScreen";
 import { TrustCenterScreen } from "./screens/TrustCenterScreen";
 import { BuyNumberModal } from "./components/BuyNumberModal";
 import { NotifyBar } from "./components/NotifyBar";
-import { NUMBER_RENTAL, type BundleId, type BillingCycle } from "./core/plans";
+import { NUMBER_RENTAL } from "./core/plans";
 
 type Tab = "home" | "numbers" | "calls" | "inbox" | "activity" | "settings";
 type Overlay =
   | { name: "numberSettings"; id: string }
   | { name: "trust" }
   | { name: "billing" }
-  | { name: "plans" }
+  | { name: "pricing" }
   | { name: "dialer" }
   | { name: "profile" }
   | { name: "general" }
@@ -65,7 +65,7 @@ export function buildNumber(n: { number: string; price: number; sms: boolean; vo
 
 /** Inner shell — the phone app (bottom tabs + overlays). Has access to the store. */
 export function Shell({ preview }: { preview?: boolean } = {}) {
-  const { state, toasts, buyNumber, subscribeAndBuy, subscribeByCardAndBuy, searchNumbers, selectNumber, placeCall, showToast } = useApp();
+  const { state, toasts, buyNumber, searchNumbers, selectNumber, placeCall, showToast } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>("home");
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [showBuy, setShowBuy] = useState(false);
@@ -85,19 +85,8 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
     { id: "settings", label: "Settings", Icon: Settings },
   ];
 
-  // Activate a plan and claim this number free, in one flow (a number needs a plan).
-  const handleSubscribeAndBuy = (n: { number: string; price: number; sms: boolean; voice: boolean }, tier: BundleId, cycle: BillingCycle) =>
-    subscribeAndBuy(buildNumber(n), tier, cycle, { kind: "local" }).then((ok) => {
-      if (ok) showToast(`Plan activated · ${n.number} added 🎉`);
-    });
-  const handleCardPlanAndBuy = (n: { number: string; price: number; sms: boolean; voice: boolean }, tier: BundleId, cycle: BillingCycle) =>
-    subscribeByCardAndBuy(buildNumber(n), tier, cycle).then((ok) => {
-      if (ok) showToast(`Plan activated · ${n.number} added 🎉`);
-    });
-
-  // Add a number to the existing plan — free (included slot) or a paid extra.
-  const handleAddNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }, opts: { free?: boolean }) =>
-    buyNumber(buildNumber(n), { ...opts, kind: "local" }).then((ok) => {
+  const handleBuyNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }) =>
+    buyNumber(buildNumber(n), { kind: "local" }).then((ok) => {
       if (ok) showToast(`${n.number} added for $${NUMBER_RENTAL.local.toFixed(2)}/mo`);
     });
 
@@ -110,7 +99,7 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
 
   const renderTab = () => {
     switch (activeTab) {
-      case "home":     return <HomeScreen onBuyNumber={() => setShowBuy(true)} onOpenInbox={() => setActiveTab("inbox")} onOpenTrust={() => setOverlay({ name: "trust" })} onTopUp={() => setOverlay({ name: "billing" })} onOpenPlans={() => setOverlay({ name: "plans" })} />;
+      case "home":     return <HomeScreen onBuyNumber={() => setShowBuy(true)} onOpenInbox={() => setActiveTab("inbox")} onOpenTrust={() => setOverlay({ name: "trust" })} onTopUp={() => setOverlay({ name: "billing" })} />;
       case "numbers":  return <NumbersScreen onBuyNumber={() => setShowBuy(true)} onOpenSettings={(id) => setOverlay({ name: "numberSettings", id })} onOpenInbox={openInboxFor} />;
       case "calls":    return <CallsScreen onOpenDialer={() => setOverlay({ name: "dialer" })} onMessage={(num) => { setComposeTo(num); setActiveTab("inbox"); }} />;
       case "inbox":    return <InboxScreen composeTo={composeTo} onComposeHandled={() => setComposeTo(null)} />;
@@ -124,7 +113,7 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
     if (overlay.name === "numberSettings") return <NumberSettingsScreen numberId={overlay.id} onBack={() => setOverlay(null)} onOpenTrust={() => setOverlay({ name: "trust" })} />;
     if (overlay.name === "trust")          return <TrustCenterScreen onBack={() => setOverlay(null)} />;
     if (overlay.name === "billing")        return <WalletScreen onBack={() => setOverlay(null)} onOpenTrust={() => setOverlay({ name: "trust" })} />;
-    if (overlay.name === "plans")          return <PlansScreen onBack={() => setOverlay(null)} onTopUp={() => setOverlay({ name: "billing" })} />;
+    if (overlay.name === "pricing")        return <PlansScreen onBack={() => setOverlay(null)} onTopUp={() => setOverlay({ name: "billing" })} />;
     if (overlay.name === "dialer")         return <DialerScreen onClose={() => setOverlay(null)} onCall={(num) => { placeCall(num); setOverlay(null); setActiveTab("calls"); }} />;
     if (overlay.name === "profile")        return <ProfilePage onBack={() => setOverlay(null)} />;
     if (overlay.name === "general")        return <GeneralPage onBack={() => setOverlay(null)} />;
@@ -159,11 +148,8 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
             onClose={() => setShowBuy(false)}
             onSearch={searchNumbers}
             walletBalance={state.wallet.balance}
-            subscription={state.subscription}
-            onSubscribeAndBuy={handleSubscribeAndBuy}
-            onCardPlanAndBuy={handleCardPlanAndBuy}
-            onAddNumber={handleAddNumber}
-            onSeePlans={() => setOverlay({ name: "plans" })}
+            onBuyNumber={handleBuyNumber}
+            onTopUp={() => { setShowBuy(false); setOverlay({ name: "billing" }); }}
           />
         )}
 

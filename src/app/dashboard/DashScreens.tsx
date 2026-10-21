@@ -2,13 +2,11 @@ import { useState, useRef, useEffect, type ReactNode, type CSSProperties } from 
 import {
   Phone, MessageSquare, Wallet2, Sparkles, Plus, Send, Settings2,
   PhoneIncoming, PhoneOutgoing, PhoneMissed, ShieldCheck,
-  Check, Gift, CheckCheck, ArrowRight, SquarePen, X, Trash2,
+  Check, DollarSign, CheckCheck, ArrowRight, SquarePen, X, Trash2,
 } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
-import { BUNDLES, bundlePrice, getBundle, type Bundle, type BillingCycle } from "../core/plans";
-import { BillingReceipt } from "../components/BillingReceipt";
-import { PaySheet } from "../screens/PlansScreen";
+import { USAGE_RATES, NUMBER_RENTAL } from "../core/plans";
 import type { Section } from "../DashboardShell";
 
 /* ============================================================ shared UI ==== */
@@ -80,8 +78,6 @@ const td: CSSProperties = { padding: "13px 14px", borderTop: `1px solid ${C.line
 
 export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s: Section) => void }) {
   const { state } = useApp();
-  const sub = state.subscription;
-  const bundle = sub ? getBundle(sub.tier) : undefined;
   const unread = state.conversations.reduce((s, c) => s + c.unread, 0);
   const recentMsgs = state.conversations.slice(0, 5);
   const recentAct = state.activity.slice(0, 5);
@@ -91,40 +87,20 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14, minWidth: 0 }}>
         <StatTile Icon={Phone} label="Active numbers" value={state.numbers.length} accent={C.blue} sub={`${state.numbers.filter((n) => n.verification === "verified").length} verified`} />
         <StatTile Icon={Wallet2} label="Wallet balance" value={`$${state.wallet.balance.toFixed(2)}`} accent={C.green} sub="Funds usage & top-ups" />
-        <StatTile Icon={Sparkles} label="Current plan" value={bundle ? bundle.name : "Pay-as-you-go"} accent={C.purple} sub={sub ? `${sub.cycle} · renews ${new Date(sub.periodEnd).toLocaleDateString([], { month: "short", day: "numeric" })}` : "No active bundle"} />
+        <StatTile Icon={Sparkles} label="Billing model" value="Pay-as-you-go" accent={C.purple} sub="No contracts or bundles" />
         <StatTile Icon={MessageSquare} label="Unread messages" value={unread} accent={C.amber} sub={`${state.conversations.length} conversations`} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)", gap: 16, alignItems: "start", minWidth: 0 }}>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, minWidth: 0 }}>
-          {/* Plan usage */}
-          <Panel title="Plan usage" action={<button style={ghostBtn} onClick={() => go("plans")}>Manage plan</button>}>
-            {sub && bundle ? (
-              <div style={{ display: "grid", gap: 16 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22 }}>
-                  {[["Minutes", sub.minutesUsed, sub.minutesIncluded], ["SMS", sub.smsUsed, sub.smsIncluded]].map(([label, u, t]) => (
-                    <div key={label as string}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                        <span style={{ color: C.muted, fontSize: 12.5, fontWeight: 600 }}>{label}</span>
-                        <span style={{ color: C.text, fontSize: 12.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{(u as number).toLocaleString()} / {(t as number).toLocaleString()}</span>
-                      </div>
-                      <Bar used={u as number} total={t as number} />
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <span style={chip}><Gift size={13} color={C.green} /> {sub.numbersUsed}/{sub.numbersMax} numbers</span>
-                  <span style={chip}>{sub.autoRenew ? "🔄 Auto-renew on" : "⏸ Auto-renew off"}</span>
-                  {sub.status === "past_due" && <span style={{ ...chip, color: C.red }}>⚠ Past due — top up</span>}
-                </div>
-                <BillingReceipt sub={sub} />
-              </div>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-                <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>You're on <b style={{ color: C.text }}>pay-as-you-go</b>. Pick a plan for included minutes &amp; SMS.</p>
-                <button style={{ ...primaryBtn, flexShrink: 0 }} onClick={() => go("plans")}>Choose a plan <ArrowRight size={15} /></button>
-              </div>
-            )}
+          {/* Pricing overview */}
+          <Panel title="Pricing" action={<button style={ghostBtn} onClick={() => go("pricing")}>View rates</button>}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+              <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>
+                <b style={{ color: C.text }}>Pay-as-you-go</b> — top up your wallet, buy numbers at ${NUMBER_RENTAL.local.toFixed(2)}/mo, calls &amp; SMS charged per use.
+              </p>
+              <button style={{ ...primaryBtn, flexShrink: 0 }} onClick={() => go("wallet")}>Top up wallet <ArrowRight size={15} /></button>
+            </div>
           </Panel>
 
           {/* Recent messages */}
@@ -175,8 +151,6 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
     </div>
   );
 }
-const chip: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: C.muted, background: C.input, border: `1px solid ${C.line}`, padding: "6px 11px", borderRadius: 999 };
-
 /* ================================================================= Numbers == */
 
 export function DashNumbers({ onBuyNumber, onOpenSettings, onOpenInbox }: { onBuyNumber: () => void; onOpenSettings: (id: string) => void; onOpenInbox: (id: string) => void }) {
@@ -186,9 +160,9 @@ export function DashNumbers({ onBuyNumber, onOpenSettings, onOpenInbox }: { onBu
   const [releasing, setReleasing] = useState(false);
   const confirmNum = nums.find((n) => n.id === confirmId);
   return (
-    <Panel title={`Your numbers (${nums.length})`} sub="Every number belongs to a plan — $2.99/mo each" action={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={16} /> New number</button>} bodyPad={nums.length ? 8 : 0}>
+    <Panel title={`Your numbers (${nums.length})`} sub="$2.99/mo each — pay-as-you-go" action={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={16} /> New number</button>} bodyPad={nums.length ? 8 : 0}>
       {nums.length === 0 ? (
-        <Empty icon="📱" title="No numbers yet" hint="Get your first number — $2.99/mo with any plan." cta={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={15} /> Get a number</button>} />
+        <Empty icon="📱" title="No numbers yet" hint="Get your first number — $2.99/mo, pay-as-you-go." cta={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={15} /> Get a number</button>} />
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -461,116 +435,77 @@ export function DashActivity() {
   );
 }
 
-/* =================================================================== Plans == */
+/* ================================================================ Pricing == */
 
-export function DashPlans({ onTopUp }: { onTopUp: () => void }) {
-  const { state, subscribe, setAutoRenew, cancelSubscription } = useApp();
-  const [cycle, setCycle] = useState<BillingCycle>("monthly");
-  const [chosen, setChosen] = useState<Bundle | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const sub = state.subscription;
-  const activeBundle = sub ? getBundle(sub.tier) : undefined;
-  const pastDue = sub?.status === "past_due";
-
+export function DashPricing({ onTopUp }: { onTopUp: () => void }) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* active plan panel */}
-      {sub && activeBundle && (
-        <Panel>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
-            <div style={{ minWidth: 220 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                <Sparkles size={16} color={C.blue} />
-                <span style={{ color: C.text, fontSize: 17, fontWeight: 800 }}>{activeBundle.name}</span>
-                <span style={{ color: C.muted, fontSize: 12.5 }}>· {sub.cycle}</span>
-              </div>
-              <p style={{ color: pastDue ? C.red : C.muted, fontSize: 12.5, marginTop: 6 }}>
-                {pastDue ? "Renewal failed — top up your wallet to restore" : `${sub.autoRenew ? "Auto-renews" : "Ends"} ${new Date(sub.periodEnd).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}${sub.autoRenew ? ` · $${sub.renewAmount.toFixed(2)} from wallet` : ""}`}
-              </p>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14 }}>
-                <span style={{ color: C.muted, fontSize: 12.5, fontWeight: 600 }}>Auto-renew from wallet</span>
-                <button onClick={() => setAutoRenew(!sub.autoRenew)} style={{ width: 44, height: 26, borderRadius: 999, border: "none", cursor: "pointer", position: "relative", background: sub.autoRenew ? C.blue : "rgba(120,130,150,0.35)", transition: "background .2s" }}>
-                  <span style={{ position: "absolute", top: 3, left: sub.autoRenew ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
-                </button>
-              </div>
-              {pastDue && <button onClick={onTopUp} style={{ ...primaryBtn, marginTop: 14 }}>Top up wallet</button>}
-              {!confirmCancel ? (
-                <button onClick={() => setConfirmCancel(true)} style={{ marginTop: 12, padding: "9px 16px", borderRadius: radius.md, border: `1px solid ${C.line}`, background: "transparent", color: C.muted, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font.sans }}>Cancel plan</button>
-              ) : (
-                <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: radius.md, background: C.card, border: "1px solid rgba(239,68,68,0.3)", maxWidth: 320 }}>
-                  <p style={{ color: C.text, fontSize: 12.5, lineHeight: 1.5, marginBottom: 12 }}>Cancel your plan? You'll lose included minutes &amp; SMS and move to pay-as-you-go. Re-subscribe anytime.</p>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button disabled={cancelling} onClick={() => setConfirmCancel(false)} style={{ flex: 1, padding: "9px", borderRadius: radius.sm, border: `1px solid ${C.line}`, background: C.input, color: C.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font.sans }}>Keep plan</button>
-                    <button disabled={cancelling} onClick={async () => { setCancelling(true); const ok = await cancelSubscription(); setCancelling(false); if (ok) setConfirmCancel(false); }} style={{ flex: 1, padding: "9px", borderRadius: radius.sm, border: "none", background: C.red, color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: font.sans, opacity: cancelling ? 0.7 : 1 }}>{cancelling ? "Cancelling…" : "Cancel plan"}</button>
-                  </div>
-                </div>
-              )}
+      <Panel>
+        <div style={{ textAlign: "center", padding: "12px 0 8px" }}>
+          <h2 style={{ color: C.text, fontSize: 22, fontWeight: 800 }}>Pay-as-you-go pricing</h2>
+          <p style={{ color: C.muted, fontSize: 13.5, marginTop: 6, lineHeight: 1.5 }}>
+            No contracts, no bundles — top up your wallet, buy a number, and pay only for what you use.
+          </p>
+        </div>
+      </Panel>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+        {/* Number rental */}
+        <Panel title="Number rental" sub="Flat monthly fee per number">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ color: C.text, fontSize: 14 }}>Local number</span>
+              <span style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>${NUMBER_RENTAL.local.toFixed(2)}<span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>/mo</span></span>
             </div>
-            <div style={{ flex: 1, minWidth: 260, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-              {[["Minutes", sub.minutesUsed, sub.minutesIncluded], ["SMS", sub.smsUsed, sub.smsIncluded]].map(([label, u, t]) => (
-                <div key={label as string}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ color: C.muted, fontSize: 12.5, fontWeight: 600 }}>{label}</span>
-                    <span style={{ color: C.text, fontSize: 12.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{(u as number).toLocaleString()} / {(t as number).toLocaleString()}</span>
-                  </div>
-                  <Bar used={u as number} total={t as number} />
-                </div>
-              ))}
-              <div style={{ gridColumn: "1 / -1", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <span style={chip}><Gift size={13} color={C.green} /> {sub.numbersUsed}/{sub.numbersMax} numbers used</span>
-              </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ color: C.text, fontSize: 14 }}>Toll-free number</span>
+              <span style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>${NUMBER_RENTAL.tollfree.toFixed(2)}<span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>/mo</span></span>
             </div>
           </div>
         </Panel>
-      )}
 
-      {/* cycle toggle */}
-      <div style={{ display: "flex", justifyContent: "center" }}>
-        <div style={{ display: "inline-flex", background: C.card, border: `1px solid ${C.line}`, borderRadius: 999, padding: 4, gap: 4 }}>
-          {(["monthly", "annual"] as const).map((k) => { const on = cycle === k; return (
-            <button key={k} onClick={() => setCycle(k)} style={{ border: "none", cursor: "pointer", padding: "8px 20px", borderRadius: 999, fontSize: 13, fontWeight: 700, fontFamily: font.sans, background: on ? gradients.brand : "transparent", color: on ? "#fff" : C.muted, display: "inline-flex", alignItems: "center", gap: 7 }}>
-              {k === "monthly" ? "Monthly" : "Annual"}{k === "annual" && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 999, background: on ? "rgba(255,255,255,0.22)" : "rgba(34,197,94,0.15)", color: on ? "#fff" : C.green }}>2 mo free</span>}
-            </button>
-          ); })}
-        </div>
+        {/* Usage rates */}
+        <Panel title="Usage rates" sub="Charged per use from wallet">
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {USAGE_RATES.map((r, i) => (
+              <div key={r.key} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "10px 0",
+                borderTop: i > 0 ? `1px solid ${C.lineSoft}` : "none",
+              }}>
+                <span style={{ color: C.text, fontSize: 13 }}>{r.label}</span>
+                <span style={{ color: C.text, fontSize: 13, fontWeight: 700, fontFamily: font.mono }}>
+                  ${r.price.toFixed(3)}<span style={{ color: C.muted, fontSize: 11, fontWeight: 600 }}>{r.unit}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </Panel>
       </div>
 
-      {/* 3-across cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, alignItems: "start" }}>
-        {BUNDLES.map((b) => {
-          const price = bundlePrice(b, cycle);
-          const isActive = sub?.tier === b.id && sub.cycle === cycle && sub.status === "active";
-          return (
-            <div key={b.id} style={{ background: C.card, borderRadius: 18, padding: "22px 20px", border: `1.5px solid ${b.featured ? C.blue : C.lineSoft}`, position: "relative" }}>
-              {b.featured && <span style={{ position: "absolute", top: -10, right: 18, background: gradients.brand, color: "#fff", fontSize: 10, fontWeight: 800, padding: "3px 11px", borderRadius: 999 }}>Most popular</span>}
-              <h3 style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>{b.name}</h3>
-              <p style={{ color: C.muted, fontSize: 12.5, marginTop: 3, minHeight: 34 }}>{b.tagline}</p>
-              <div style={{ margin: "10px 0 16px" }}>
-                <span style={{ color: C.text, fontSize: 30, fontWeight: 800 }}>${price.toFixed(cycle === "annual" ? 0 : 2)}</span>
-                <span style={{ color: C.muted, fontSize: 13 }}>{cycle === "annual" ? "/yr" : "/mo"}</span>
-              </div>
-              <div style={{ display: "grid", gap: 9 }}>
-                {b.perks.map((p) => <div key={p} style={{ display: "flex", alignItems: "center", gap: 9 }}><Check size={15} color={C.green} /><span style={{ color: C.text, fontSize: 13 }}>{p}</span></div>)}
-              </div>
-              <button onClick={() => !isActive && setChosen(b)} disabled={isActive} style={{ width: "100%", marginTop: 18, padding: "13px", borderRadius: 12, fontSize: 14, fontWeight: 800, fontFamily: font.sans, cursor: isActive ? "default" : "pointer", background: isActive ? C.input : (b.featured ? gradients.brand : C.input), color: isActive ? C.green : (b.featured ? "#fff" : C.text), border: b.featured || isActive ? "none" : `1px solid ${C.line}` }}>
-                {isActive ? "✓ Current plan" : `Get ${b.name}`}
-              </button>
+      {/* How it works */}
+      <Panel title="How it works">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+          {[
+            { n: "1", title: "Top up wallet", desc: "Add funds with $5, $10, $20 or $50 packs" },
+            { n: "2", title: "Buy a number", desc: "Pick a local or toll-free number — flat monthly rental" },
+            { n: "3", title: "Use it", desc: "Make calls & send texts — usage charged per minute/message" },
+          ].map(({ n, title, desc }) => (
+            <div key={n} style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
+              <span style={{
+                width: 36, height: 36, borderRadius: "50%",
+                background: "rgba(124,92,255,0.14)", color: C.blue,
+                fontSize: 16, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center",
+              }}>{n}</span>
+              <span style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>{title}</span>
+              <span style={{ color: C.muted, fontSize: 12.5, lineHeight: 1.4 }}>{desc}</span>
             </div>
-          );
-        })}
-      </div>
-
-      {chosen && (
-        <PaySheet
-          desktop
-          bundle={chosen} cycle={cycle} walletBalance={state.wallet.balance}
-          onClose={() => setChosen(null)}
-          onWallet={async () => { const ok = await subscribe(chosen.id, cycle, { pay: "wallet" }); if (ok) setChosen(null); }}
-          onCardDone={() => setChosen(null)}
-          onTopUp={() => { setChosen(null); onTopUp(); }}
-        />
-      )}
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}>
+          <button style={primaryBtn} onClick={onTopUp}>Top up wallet <ArrowRight size={15} /></button>
+        </div>
+      </Panel>
     </div>
   );
 }

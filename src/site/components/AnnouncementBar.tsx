@@ -13,7 +13,7 @@ export function AnnouncementBar() {
       <span className="dg-announce-text">
         Now live — your business calls &amp; texts in one app.
       </span>
-      <span className="dg-announce-cta">See plans →</span>
+      <span className="dg-announce-cta">See pricing →</span>
     </Link>
   );
 }

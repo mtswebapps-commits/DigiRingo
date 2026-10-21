@@ -23,7 +23,7 @@ export function SettingsScreen({ go }: Props) {
     { Icon: Building2,  label: "General",        color: C.blue,   onClick: () => go("general") },
     { Icon: Hash,       label: "Phone numbers",  color: C.purple, onClick: () => go("numbers") },
     { Icon: PhoneForwarded, label: "Call forwarding", color: C.green, onClick: () => go("forwarding") },
-    { Icon: Sparkles,   label: "Plans & bundles",color: C.blue,   onClick: () => go("plans") },
+    { Icon: Sparkles,   label: "Pricing",        color: C.blue,   onClick: () => go("plans") },
     { Icon: CreditCard, label: "Wallet & billing",color: C.green,  onClick: () => go("billing") },
     { Icon: ShieldCheck,label: "Trust center",   color: C.amber,  onClick: () => go("trust"), badge: unverified || undefined },
     { Icon: Contact,    label: "Contacts",       color: C.blue,   onClick: () => go("contacts") },

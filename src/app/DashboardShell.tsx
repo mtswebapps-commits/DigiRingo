@@ -5,11 +5,11 @@ import {
 } from "lucide-react";
 import { useApp } from "./store/AppStore";
 import { colors as C, gradients, font, radius } from "./core/theme";
-import { NUMBER_RENTAL, type BundleId, type BillingCycle } from "./core/plans";
+import { NUMBER_RENTAL } from "./core/plans";
 import { buildNumber, PhoneGate } from "./MobileShell";
 import { PhoneFrame } from "./components/PhoneFrame";
 import { ThemeToggle } from "./core/theme-context";
-import { DashHome, DashNumbers, DashInbox, DashCalls, DashActivity, DashPlans } from "./dashboard/DashScreens";
+import { DashHome, DashNumbers, DashInbox, DashCalls, DashActivity, DashPricing } from "./dashboard/DashScreens";
 
 import { SettingsScreen, type SettingsRoute } from "./screens/SettingsScreen";
 import {
@@ -24,7 +24,7 @@ import { InCallScreen } from "./screens/InCallScreen";
 import { BuyNumberModal } from "./components/BuyNumberModal";
 import { NotifyBar } from "./components/NotifyBar";
 
-export type Section = "home" | "numbers" | "inbox" | "calls" | "activity" | "plans" | "wallet" | "trust" | "settings";
+export type Section = "home" | "numbers" | "inbox" | "calls" | "activity" | "pricing" | "wallet" | "trust" | "settings";
 type Sub =
   | { name: "numberSettings"; id: string }
   | { name: "profile" | "general" | "preferences" | "notifications" | "contacts" | "blocklist" | "support" | "forwarding" }
@@ -38,7 +38,7 @@ const MAIN_NAV: Array<{ id: Section; label: string; Icon: typeof LayoutGrid }> =
   { id: "activity", label: "Activity", Icon: Bell },
 ];
 const ACCT_NAV: Array<{ id: Section; label: string; Icon: typeof LayoutGrid }> = [
-  { id: "plans", label: "Plans", Icon: Sparkles },
+  { id: "pricing", label: "Pricing", Icon: Sparkles },
   { id: "wallet", label: "Wallet", Icon: Wallet2 },
   { id: "trust", label: "Trust Center", Icon: ShieldCheck },
   { id: "settings", label: "Settings", Icon: Settings },
@@ -50,7 +50,7 @@ const SECTION_META: Record<Section, { title: string; sub: string }> = {
   inbox: { title: "Inbox", sub: "Conversations across your numbers" },
   calls: { title: "Calls", sub: "Call history & dialer" },
   activity: { title: "Activity", sub: "Alerts & account events" },
-  plans: { title: "Plans", sub: "Bundles, usage & auto-renew" },
+  pricing: { title: "Pricing", sub: "Pay-as-you-go rates & number rental" },
   wallet: { title: "Wallet", sub: "Balance, top-ups & transactions" },
   trust: { title: "Trust Center", sub: "10DLC brand & number verification" },
   settings: { title: "Settings", sub: "Profile & preferences" },
@@ -63,7 +63,7 @@ const SECTION_META: Record<Section, { title: string; sub: string }> = {
  * screens the mobile app renders — one store, two form factors.
  */
 export function DashboardShell() {
-  const { state, toasts, buyNumber, subscribeAndBuy, subscribeByCardAndBuy, searchNumbers, selectNumber, placeCall, showToast, logout } = useApp();
+  const { state, toasts, buyNumber, searchNumbers, selectNumber, placeCall, showToast, logout } = useApp();
   const [section, setSection] = useState<Section>("home");
   const [sub, setSub] = useState<Sub>(null);
   const [showBuy, setShowBuy] = useState(false);
@@ -78,24 +78,15 @@ export function DashboardShell() {
 
   const go = (s: Section) => { setSub(null); setSection(s); };
 
-  // number-buy handlers (identical policy to the mobile shell)
-  const handleSubscribeAndBuy = (n: { number: string; price: number; sms: boolean; voice: boolean }, tier: BundleId, cycle: BillingCycle) =>
-    subscribeAndBuy(buildNumber(n), tier, cycle, { kind: "local" }).then((ok) => {
-      if (ok) showToast(`Plan activated · ${n.number} added 🎉`);
-    });
-  const handleCardPlanAndBuy = (n: { number: string; price: number; sms: boolean; voice: boolean }, tier: BundleId, cycle: BillingCycle) =>
-    subscribeByCardAndBuy(buildNumber(n), tier, cycle).then((ok) => {
-      if (ok) showToast(`Plan activated · ${n.number} added 🎉`);
-    });
-  const handleAddNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }, opts: { free?: boolean }) =>
-    buyNumber(buildNumber(n), { ...opts, kind: "local" }).then((ok) => {
+  const handleBuyNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }) =>
+    buyNumber(buildNumber(n), { kind: "local" }).then((ok) => {
       if (ok) showToast(`${n.number} added for $${NUMBER_RENTAL.local.toFixed(2)}/mo`);
     });
 
   const goSettings = (route: SettingsRoute) => {
     if (route === "numbers") return go("numbers");
     if (route === "billing") return go("wallet");
-    if (route === "plans") return go("plans");
+    if (route === "plans") return go("pricing");
     if (route === "trust") return go("trust");
     setSub({ name: route }); // profile / general / preferences / notifications / contacts / blocklist / support
   };
@@ -116,7 +107,7 @@ export function DashboardShell() {
       case "inbox":    return <DashInbox composeTo={composeTo} onComposeHandled={() => setComposeTo(null)} />;
       case "calls":    return <DashCalls onOpenDialer={() => setShowDialer(true)} onMessage={(num) => { setComposeTo(num); go("inbox"); }} />;
       case "activity": return <DashActivity />;
-      case "plans":    return <DashPlans onTopUp={() => go("wallet")} />;
+      case "pricing":  return <DashPricing onTopUp={() => go("wallet")} />;
       case "wallet":   return <WalletScreen onOpenTrust={() => go("trust")} desktop />;
       case "trust":    return <TrustCenterScreen onBack={() => go("home")} desktop />;
       case "settings": return <SettingsScreen go={goSettings} />;
@@ -253,11 +244,8 @@ export function DashboardShell() {
           onClose={() => setShowBuy(false)}
           onSearch={searchNumbers}
           walletBalance={state.wallet.balance}
-          subscription={state.subscription}
-          onSubscribeAndBuy={handleSubscribeAndBuy}
-          onCardPlanAndBuy={handleCardPlanAndBuy}
-          onAddNumber={handleAddNumber}
-          onSeePlans={() => { setShowBuy(false); go("plans"); }}
+          onBuyNumber={handleBuyNumber}
+          onTopUp={() => { setShowBuy(false); go("wallet"); }}
         />
       )}
       {showDialer && (

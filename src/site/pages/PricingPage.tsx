@@ -3,10 +3,9 @@ import { Check, ChevronDown, ArrowRight } from "lucide-react";
 import { Reveal } from "../components/Reveal";
 import { LinkButton, SectionIntro } from "../components/ui";
 import { Link } from "../router";
-import { PRICING, FAQS, COUNTRIES, NUMBER_RENTAL, USAGE_RATES } from "../data";
+import { FAQS, COUNTRIES, NUMBER_RENTAL, USAGE_RATES } from "../data";
 
 export function PricingPage() {
-  const [yearly, setYearly] = useState(false);
   return (
     <>
       {/* hero */}
@@ -17,100 +16,33 @@ export function PricingPage() {
           </Reveal>
           <Reveal delay={80}>
             <h1 className="dg-h1" style={{ marginTop: 22, fontSize: "clamp(36px,6vw,72px)" }}>
-              Simple plans. <span className="dg-grad-text">No surprises.</span>
+              Pay only for what you use. <span className="dg-grad-text">Nothing more.</span>
             </h1>
           </Reveal>
           <Reveal delay={150}>
             <p className="dg-lead" style={{ marginTop: 22, maxWidth: 560, margin: "22px auto 0" }}>
-              Every plan is a pool of minutes &amp; SMS — add numbers at <b>$2.99/mo each</b>.
-              Keep going pay-as-you-go when you need to. Wallet or card.
+              No plans, no bundles, no commitments. Top up your wallet, pick a number
+              and pay per minute &amp; message — simple and transparent.
             </p>
           </Reveal>
         </div>
       </section>
 
-      {/* tiers */}
+      {/* numbers + usage rates */}
       <section className="dg-section" style={{ paddingTop: 10 }}>
-        <div className="dg-wrap">
-          {/* monthly / yearly toggle */}
-          <Reveal>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 42 }}>
-              <div style={{ display: "inline-flex", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 999, padding: 4, gap: 4 }}>
-                {([["monthly", "Monthly"], ["yearly", "Yearly"]] as const).map(([k, label]) => {
-                  const active = (k === "yearly") === yearly;
-                  return (
-                    <button key={k} onClick={() => setYearly(k === "yearly")} style={{
-                      border: "none", cursor: "pointer", padding: "9px 20px", borderRadius: 999,
-                      fontSize: 14, fontWeight: 600, fontFamily: "inherit", transition: "all 0.2s",
-                      background: active ? "var(--grad)" : "transparent", color: active ? "#fff" : "var(--muted)",
-                      display: "inline-flex", alignItems: "center", gap: 8,
-                    }}>
-                      {label}
-                      {k === "yearly" && (
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: active ? "rgba(255,255,255,0.22)" : "rgba(34,197,94,0.15)", color: active ? "#fff" : "var(--green)" }}>2 months free</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </Reveal>
-
-          <div className="dg-grid dg-grid-3" style={{ alignItems: "stretch" }}>
-            {PRICING.map((p, i) => (
-              <Reveal key={p.name} delay={i * 90}>
-                <div className={`dg-card dg-price-card ${p.featured ? "feat" : ""}`} style={{ height: "100%" }}>
-                  {p.featured && <span className="dg-badge-pop">Most popular</span>}
-                  <h3 className="dg-h3" style={{ fontSize: 20 }}>{p.name}</h3>
-                  <p className="dg-muted" style={{ fontSize: 14, marginTop: 6 }}>{p.tagline}</p>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 22 }}>
-                    <span className="dg-price-amt">${yearly ? p.yearly : p.monthly}</span>
-                    <span className="dg-muted" style={{ fontSize: 16 }}>{p.unit}</span>
-                  </div>
-                  <p className="dg-muted" style={{ fontSize: 12.5, marginTop: 6, minHeight: 17 }}>
-                    {yearly ? `billed annually — $${p.yearlyTotal}/yr` : "billed monthly"}
-                  </p>
-                  <div style={{ height: 1, background: "var(--line)", margin: "20px 0" }} />
-                  <div style={{ flex: 1 }}>
-                    {p.features.map((f) => (
-                      <div className="dg-feat-li" key={f}>
-                        <Check size={17} /> <span style={{ color: "var(--text)" }}>{f}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ marginTop: 26 }}>
-                    <LinkButton to="/signup" variant={p.featured ? "primary" : "ghost"} size="lg">
-                      {p.cta}
-                    </LinkButton>
-                  </div>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-          <Reveal>
-            <p className="dg-center dg-muted" style={{ fontSize: 13.5, marginTop: 28, maxWidth: 640, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
-              Annual plans are billed as a single upfront charge and renew yearly. Usage beyond your
-              bundle bills at the pay-as-you-go rates below. Pay from your wallet or by card.
-            </p>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* pay-as-you-go */}
-      <section className="dg-section" style={{ paddingTop: 20 }}>
         <div className="dg-wrap">
           <Reveal>
             <SectionIntro
-              eyebrow="Extra numbers & overflow"
-              title="Add more numbers. Never get cut off."
-              lead="Add numbers to any plan at a flat $2.99/mo each ($4.99/mo toll-free). If you go past your plan's minutes or SMS you keep going pay-as-you-go — all pooled across your account, drawn from your wallet."
+              eyebrow="Rates"
+              title="Transparent, per-use pricing"
+              lead="Rent a number at a flat monthly rate. Calls and texts are charged per use from your prepaid wallet — no hidden fees, no contracts."
             />
           </Reveal>
           <div className="dg-grid dg-grid-2" style={{ marginTop: 40, alignItems: "start", gap: 22 }}>
             <Reveal>
               <div className="dg-card" style={{ padding: 28 }}>
-                <h3 className="dg-h3" style={{ fontSize: 18 }}>Extra numbers</h3>
-                <p className="dg-muted" style={{ fontSize: 13.5, marginTop: 6 }}>Flat monthly rental per number — no contract.</p>
+                <h3 className="dg-h3" style={{ fontSize: 18 }}>Numbers</h3>
+                <p className="dg-muted" style={{ fontSize: 13.5, marginTop: 6 }}>Flat monthly rental per number — no contract, cancel any time.</p>
                 <div style={{ marginTop: 18 }}>
                   {NUMBER_RENTAL.map((r) => (
                     <PriceRow key={r.type} label={r.type} price={r.price} unit={r.unit} />
@@ -131,11 +63,39 @@ export function PricingPage() {
             </Reveal>
           </div>
           <Reveal>
-            <p className="dg-center dg-muted" style={{ fontSize: 13, marginTop: 26, maxWidth: 640, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
-              We alert you in the app and web app as you near your plan's limit, so you can upgrade before
-              overflow kicks in. Extra numbers share your plan's pooled minutes &amp; SMS.
-            </p>
+            <div className="dg-center" style={{ marginTop: 36 }}>
+              <LinkButton to="/signup" variant="primary" size="lg">
+                Sign up free <ArrowRight size={17} />
+              </LinkButton>
+            </div>
           </Reveal>
+        </div>
+      </section>
+
+      {/* how it works */}
+      <section className="dg-section" style={{ paddingTop: 20 }}>
+        <div className="dg-wrap">
+          <Reveal>
+            <SectionIntro
+              eyebrow="How it works"
+              title="Up and running in 60 seconds"
+            />
+          </Reveal>
+          <div className="dg-grid dg-grid-3" style={{ marginTop: 40, gap: 22 }}>
+            {[
+              { n: "1", title: "Sign up free", body: "Create your account in under a minute — no card required." },
+              { n: "2", title: "Top up your wallet", body: "Add $5, $10, $20 or $50 securely by card. Your balance is ready instantly." },
+              { n: "3", title: "Pick a number & go", body: "Choose a local or toll-free number and start calling & texting right away." },
+            ].map((s, i) => (
+              <Reveal key={s.n} delay={i * 90}>
+                <div className="dg-card" style={{ padding: 28, textAlign: "center" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: 999, background: "var(--grad)", color: "#fff", fontSize: 18, fontWeight: 800 }}>{s.n}</span>
+                  <h3 className="dg-h3" style={{ fontSize: 17, marginTop: 16 }}>{s.title}</h3>
+                  <p className="dg-muted" style={{ fontSize: 13.5, marginTop: 8, lineHeight: 1.6 }}>{s.body}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -182,7 +142,7 @@ export function PricingPage() {
                 Your number, live in 60 seconds.
               </h2>
               <p className="dg-lead" style={{ margin: "18px auto 0", maxWidth: 500 }}>
-                Bundle or pay-as-you-go, wallet or card — start on your terms and change any time.
+                Sign up free, top up your wallet, pick a number — start on your terms.
               </p>
               <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 30, flexWrap: "wrap" }}>
                 <LinkButton to="/signup" variant="primary" size="lg">
