@@ -196,6 +196,77 @@ export function HomePage() {
         </div>
       </section>
 
+      {/* --------------------------------------------------------- DOWNLOAD APP */}
+      <section className="dg-section" style={{ paddingTop: 40, paddingBottom: 40 }}>
+        <div className="dg-wrap">
+          <Reveal>
+            <div style={{
+              position: "relative", overflow: "hidden",
+              borderRadius: 28, padding: "56px 32px",
+              background: "linear-gradient(135deg, #0f1729 0%, #1a1045 40%, #0c1a3a 100%)",
+              border: "1px solid rgba(124,92,255,0.2)",
+              textAlign: "center",
+            }}>
+              {/* Glow effects */}
+              <div style={{ position: "absolute", top: -80, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle, rgba(124,92,255,0.15) 0%, transparent 70%)", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", bottom: -60, right: -60, width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle, rgba(79,142,247,0.1) 0%, transparent 70%)", pointerEvents: "none" }} />
+
+              <div style={{ position: "relative", zIndex: 1 }}>
+                <span style={{
+                  display: "inline-block", padding: "6px 16px", borderRadius: 999,
+                  background: "rgba(124,92,255,0.15)", border: "1px solid rgba(124,92,255,0.3)",
+                  color: "var(--blue)", fontSize: 13, fontWeight: 700, letterSpacing: 0.5,
+                  marginBottom: 24,
+                }}>
+                  Available on Android
+                </span>
+
+                <h2 className="dg-h2" style={{ maxWidth: 600, margin: "0 auto", fontSize: "clamp(28px, 4vw, 42px)" }}>
+                  Take your second number <span className="dg-grad-text">everywhere</span>
+                </h2>
+
+                <p className="dg-lead" style={{ margin: "18px auto 0", maxWidth: 480, fontSize: 16 }}>
+                  Download DIGIRINGO on your Android phone. Call, text, and manage your numbers on the go — all from one sleek app.
+                </p>
+
+                <a
+                  href="https://play.google.com/store/apps/details?id=com.digiringo.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 14,
+                    marginTop: 36, padding: "16px 36px", borderRadius: 16,
+                    background: "linear-gradient(135deg, #4f8ef7, #7c5cff, #9b6ff7)",
+                    color: "#fff", textDecoration: "none",
+                    fontSize: 16, fontWeight: 800, letterSpacing: -0.3,
+                    boxShadow: "0 8px 32px rgba(124,92,255,0.4), 0 2px 8px rgba(0,0,0,0.3)",
+                    transition: "transform 0.2s, box-shadow 0.2s",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 40px rgba(124,92,255,0.5), 0 4px 12px rgba(0,0,0,0.3)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 8px 32px rgba(124,92,255,0.4), 0 2px 8px rgba(0,0,0,0.3)"; }}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.302 2.302-2.302 2.302-2.592-2.302 2.592-2.302zM5.864 2.658L16.8 9.09l-2.302 2.302-8.634-8.734z"/></svg>
+                  Get it on Google Play
+                </a>
+
+                <div style={{ display: "flex", justifyContent: "center", gap: 32, marginTop: 36, flexWrap: "wrap" }}>
+                  {[
+                    { icon: "⚡", label: "Fast & lightweight" },
+                    { icon: "🔒", label: "Private & secure" },
+                    { icon: "🌙", label: "Beautiful dark UI" },
+                  ].map(f => (
+                    <div key={f.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>{f.icon}</span>
+                      <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 14, fontWeight: 600 }}>{f.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
       {/* -------------------------------------------------------------- CTA BAND */}
       <section className="dg-section" style={{ paddingTop: 20 }}>
         <div className="dg-wrap">
