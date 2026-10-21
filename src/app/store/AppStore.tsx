@@ -13,6 +13,7 @@ import type { ConversationThread } from "../services/telnyx/types";
 
 import { getBundle, NUMBER_RENTAL } from "../core/plans";
 import type { BillingCycle, NumberKind, PayMethod } from "../core/plans";
+import { fetchRates } from "../core/rates";
 import {
   apiLogin, apiRegister, apiMe, apiWallet, apiBuyNumber, apiReleaseNumber, apiSubscribe, apiGetSubscription, apiSetAutoRenew, apiCancelSubscription,
   apiResendVerification, apiGetCalls, apiGetNumbers, apiLogCall,
@@ -581,6 +582,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // payments are ready. Also: if we're returning from a PayPal approval
   // (?pay=paypal&token=…), capture + fulfil server-side, then refresh + confirm.
   useEffect(() => {
+    fetchRates();
     loadPaymentsConfig();
     capturePaypalReturn().then((r) => {
       if (r === "paid") { showToast("Payment received — updating your account…"); syncBillingSoon(); }

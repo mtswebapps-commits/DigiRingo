@@ -27,7 +27,7 @@ import { readFile, stat } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHmac, timingSafeEqual, createPublicKey, verify as edVerify } from "node:crypto";
-import { numberPrice, bundleCharge, bundleFor, BUNDLES } from "./plans.mjs";
+import { numberPrice, bundleCharge, bundleFor, BUNDLES, MARKUP_PCT, OVERFLOW_RATES } from "./plans.mjs";
 import { sendPush, vapidPublicKey, webPushConfigured } from "./webpush.mjs";
 import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify, publishableKey as stripePubKey, stripeConfigured, createCustomer as stripeCreateCustomer, createSetupSession as stripeSetupSession, cardFromIntent as stripeCardFromIntent } from "./stripe.mjs";
 import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
@@ -163,6 +163,61 @@ const PREFIX = "/api/telnyx";
 // /api/telnyx/* routes just answer 503 until the key is set in the host's env.
 if (!telnyxKey()) {
   console.warn("⚠ TELNYX_API_KEY not set — serving site only; /api/telnyx/* will return 503.");
+}
+
+/* ---- Telnyx rates cache (fetched from /v2/pricing, refreshed every 24h) ---- */
+const ratesMarkup = (cost, decimals = 3) => Math.round(cost * (1 + MARKUP_PCT / 100) * 10 ** decimals) / 10 ** decimals;
+
+// Wholesale usage rates — env-overridable so they can be updated without redeploy
+const WHOLESALE_USAGE = {
+  voice:        Number(process.env.TELNYX_VOICE_RATE       ?? 0.006),
+  sms_local:    Number(process.env.TELNYX_SMS_LOCAL_RATE    ?? 0.006),
+  sms_tollfree: Number(process.env.TELNYX_SMS_TF_RATE      ?? 0.008),
+  sms_shortcode:Number(process.env.TELNYX_SMS_SC_RATE      ?? 0.01),
+  mms_out:      Number(process.env.TELNYX_MMS_OUT_RATE     ?? 0.018),
+  mms_in:       Number(process.env.TELNYX_MMS_IN_RATE      ?? 0.006),
+};
+
+let _ratesCache = null;
+let _ratesCacheAt = 0;
+const RATES_TTL = 24 * 60 * 60 * 1000; // 24h
+
+async function fetchTelnyxPricing() {
+  if (!telnyxKey()) return null;
+  try {
+    const r = await fetch(`${TELNYX}/pricing`, { headers: { Authorization: `Bearer ${telnyxKey()}` } });
+    if (!r.ok) return null;
+    const csv = await r.text();
+    const rows = csv.trim().split("\n").slice(1); // skip header
+    const numbers = {};
+    for (const row of rows) {
+      const cols = row.split(",");
+      // CSV: ISO,Country,...,Type,OneTimeCost,MonthlyPrice,...
+      const iso = cols[0]?.trim();
+      const type = cols[3]?.trim()?.toLowerCase();
+      const monthly = parseFloat(cols[5]) || 0;
+      if (!iso || !type || monthly <= 0) continue;
+      if (!numbers[iso]) numbers[iso] = {};
+      numbers[iso][type] = { wholesale: monthly, retail: ratesMarkup(monthly, 2) };
+    }
+    return numbers;
+  } catch (e) { console.error("Failed to fetch Telnyx pricing:", e.message); return null; }
+}
+
+async function getRatesWithMarkup() {
+  if (_ratesCache && Date.now() - _ratesCacheAt < RATES_TTL) return _ratesCache;
+  const numberPricing = await fetchTelnyxPricing();
+  const usage = Object.fromEntries(
+    Object.entries(WHOLESALE_USAGE).map(([k, w]) => [k, { wholesale: w, retail: ratesMarkup(w, 3) }])
+  );
+  _ratesCache = {
+    markupPct: MARKUP_PCT,
+    usage,
+    numbers: numberPricing || _ratesCache?.numbers || {},
+    cachedAt: new Date().toISOString(),
+  };
+  _ratesCacheAt = Date.now();
+  return _ratesCache;
 }
 
 /* ---- Control Hub config (Payments / Integrations / Settings) helpers ---- */
@@ -2116,6 +2171,12 @@ createServer(async (req, res) => {
     if (!d.token) return send(res, 400, { error: "token required" });
     try { await db.savePushToken(uid, d.token, d.platform || "android"); return send(res, 200, { ok: true }); }
     catch (e) { return send(res, 500, { error: e.message }); }
+  }
+
+  // ── /api/rates — public, no auth: returns all retail rates (Telnyx wholesale + markup).
+  // The app + marketing site fetch this on load so prices auto-update when Telnyx changes.
+  if (req.url?.startsWith("/api/rates") && req.method === "GET") {
+    return send(res, 200, await getRatesWithMarkup());
   }
 
   // Anything that isn't an API/webhook route → serve the built front-end.

@@ -2,10 +2,13 @@ import { type CSSProperties } from "react";
 import { ArrowLeft, Check, DollarSign, Phone, MessageSquare, PhoneOutgoing } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { USAGE_RATES, NUMBER_RENTAL } from "../core/plans";
+import { liveUsageRates, liveNumberRental } from "../core/rates";
 
 interface Props { onBack: () => void; onTopUp: () => void; }
 
 export function PlansScreen({ onBack, onTopUp }: Props) {
+  const rates = liveUsageRates();
+  const rental = liveNumberRental();
   return (
     <div style={{ background: C.bg, minHeight: "100%", paddingBottom: 28 }}>
       <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -27,11 +30,11 @@ export function PlansScreen({ onBack, onTopUp }: Props) {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ color: C.muted, fontSize: 13 }}>Local number</span>
-              <span style={{ color: C.text, fontSize: 14, fontWeight: 800 }}>${NUMBER_RENTAL.local.toFixed(2)}<span style={{ color: C.muted, fontSize: 11, fontWeight: 600 }}>/mo</span></span>
+              <span style={{ color: C.text, fontSize: 14, fontWeight: 800 }}>${rental.local.toFixed(2)}<span style={{ color: C.muted, fontSize: 11, fontWeight: 600 }}>/mo</span></span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ color: C.muted, fontSize: 13 }}>Toll-free number</span>
-              <span style={{ color: C.text, fontSize: 14, fontWeight: 800 }}>${NUMBER_RENTAL.tollfree.toFixed(2)}<span style={{ color: C.muted, fontSize: 11, fontWeight: 600 }}>/mo</span></span>
+              <span style={{ color: C.text, fontSize: 14, fontWeight: 800 }}>${rental.tollfree.toFixed(2)}<span style={{ color: C.muted, fontSize: 11, fontWeight: 600 }}>/mo</span></span>
             </div>
           </div>
         </div>
@@ -48,7 +51,7 @@ export function PlansScreen({ onBack, onTopUp }: Props) {
             Charged per use from your wallet balance. All rates include markup on wholesale costs.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {USAGE_RATES.map((r, i) => (
+            {rates.map((r, i) => (
               <div key={r.key} style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 padding: "11px 0",

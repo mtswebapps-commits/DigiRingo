@@ -7,6 +7,7 @@ import {
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import { USAGE_RATES, NUMBER_RENTAL } from "../core/plans";
+import { liveUsageRates, liveNumberRental } from "../core/rates";
 import type { Section } from "../DashboardShell";
 
 /* ============================================================ shared UI ==== */
@@ -78,6 +79,7 @@ const td: CSSProperties = { padding: "13px 14px", borderTop: `1px solid ${C.line
 
 export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s: Section) => void }) {
   const { state } = useApp();
+  const rental = liveNumberRental();
   const unread = state.conversations.reduce((s, c) => s + c.unread, 0);
   const recentMsgs = state.conversations.slice(0, 5);
   const recentAct = state.activity.slice(0, 5);
@@ -97,7 +99,7 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
           <Panel title="Pricing" action={<button style={ghostBtn} onClick={() => go("pricing")}>View rates</button>}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
               <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>
-                <b style={{ color: C.text }}>Pay-as-you-go</b> — top up your wallet, buy numbers at ${NUMBER_RENTAL.local.toFixed(2)}/mo, calls &amp; SMS charged per use.
+                <b style={{ color: C.text }}>Pay-as-you-go</b> — top up your wallet, buy numbers at ${rental.local.toFixed(2)}/mo, calls &amp; SMS charged per use.
               </p>
               <button style={{ ...primaryBtn, flexShrink: 0 }} onClick={() => go("wallet")}>Top up wallet <ArrowRight size={15} /></button>
             </div>
@@ -155,14 +157,15 @@ export function DashHome({ onBuyNumber, go }: { onBuyNumber: () => void; go: (s:
 
 export function DashNumbers({ onBuyNumber, onOpenSettings, onOpenInbox }: { onBuyNumber: () => void; onOpenSettings: (id: string) => void; onOpenInbox: (id: string) => void }) {
   const { state, releaseNumber } = useApp();
+  const rental = liveNumberRental();
   const nums = state.numbers;
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [releasing, setReleasing] = useState(false);
   const confirmNum = nums.find((n) => n.id === confirmId);
   return (
-    <Panel title={`Your numbers (${nums.length})`} sub={`$${NUMBER_RENTAL.local.toFixed(2)}/mo each — pay-as-you-go`} action={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={16} /> New number</button>} bodyPad={nums.length ? 8 : 0}>
+    <Panel title={`Your numbers (${nums.length})`} sub={`From $${rental.local.toFixed(2)}/mo — pay-as-you-go`} action={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={16} /> New number</button>} bodyPad={nums.length ? 8 : 0}>
       {nums.length === 0 ? (
-        <Empty icon="📱" title="No numbers yet" hint={`Get your first number — $${NUMBER_RENTAL.local.toFixed(2)}/mo, pay-as-you-go.`} cta={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={15} /> Get a number</button>} />
+        <Empty icon="📱" title="No numbers yet" hint={`Get your first number — from $${rental.local.toFixed(2)}/mo, pay-as-you-go.`} cta={<button style={primaryBtn} onClick={onBuyNumber}><Plus size={15} /> Get a number</button>} />
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -438,6 +441,8 @@ export function DashActivity() {
 /* ================================================================ Pricing == */
 
 export function DashPricing({ onTopUp }: { onTopUp: () => void }) {
+  const rental = liveNumberRental();
+  const rates = liveUsageRates();
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <Panel>
@@ -455,11 +460,11 @@ export function DashPricing({ onTopUp }: { onTopUp: () => void }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ color: C.text, fontSize: 14 }}>Local number</span>
-              <span style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>${NUMBER_RENTAL.local.toFixed(2)}<span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>/mo</span></span>
+              <span style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>${rental.local.toFixed(2)}<span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>/mo</span></span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ color: C.text, fontSize: 14 }}>Toll-free number</span>
-              <span style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>${NUMBER_RENTAL.tollfree.toFixed(2)}<span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>/mo</span></span>
+              <span style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>${rental.tollfree.toFixed(2)}<span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>/mo</span></span>
             </div>
           </div>
         </Panel>
@@ -467,7 +472,7 @@ export function DashPricing({ onTopUp }: { onTopUp: () => void }) {
         {/* Usage rates */}
         <Panel title="Usage rates" sub="Charged per use from wallet">
           <div style={{ display: "flex", flexDirection: "column" }}>
-            {USAGE_RATES.map((r, i) => (
+            {rates.map((r, i) => (
               <div key={r.key} style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 padding: "10px 0",
