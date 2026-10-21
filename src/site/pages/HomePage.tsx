@@ -197,74 +197,120 @@ export function HomePage() {
       </section>
 
       {/* --------------------------------------------------------- DOWNLOAD APP */}
-      <section className="dg-section" style={{ paddingTop: 40, paddingBottom: 40 }}>
+      <section className="dg-section" style={{ paddingTop: 60, paddingBottom: 60 }}>
         <div className="dg-wrap">
-          <Reveal>
-            <div style={{
-              position: "relative", overflow: "hidden",
-              borderRadius: 28, padding: "56px 32px",
-              background: "linear-gradient(135deg, #0f1729 0%, #1a1045 40%, #0c1a3a 100%)",
-              border: "1px solid rgba(124,92,255,0.2)",
-              textAlign: "center",
-            }}>
-              {/* Glow effects */}
-              <div style={{ position: "absolute", top: -80, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle, rgba(124,92,255,0.15) 0%, transparent 70%)", pointerEvents: "none" }} />
-              <div style={{ position: "absolute", bottom: -60, right: -60, width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle, rgba(79,142,247,0.1) 0%, transparent 70%)", pointerEvents: "none" }} />
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto",
+            gap: 48,
+            alignItems: "center",
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: 32,
+            padding: "60px 56px",
+            background: "linear-gradient(160deg, #080e1f 0%, #111638 35%, #1a0e3a 65%, #0d1428 100%)",
+            border: "1px solid rgba(124,92,255,0.15)",
+          }}>
+            {/* Decorative blurred orbs */}
+            <div style={{ position: "absolute", top: -120, right: -80, width: 360, height: 360, borderRadius: "50%", background: "radial-gradient(circle, rgba(124,92,255,0.12) 0%, transparent 70%)", pointerEvents: "none" }} />
+            <div style={{ position: "absolute", bottom: -100, left: -60, width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle, rgba(79,142,247,0.08) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-              <div style={{ position: "relative", zIndex: 1 }}>
+            {/* Left: Text content */}
+            <Reveal style={{ position: "relative", zIndex: 1 }}>
+              <div>
                 <span style={{
-                  display: "inline-block", padding: "6px 16px", borderRadius: 999,
-                  background: "rgba(124,92,255,0.15)", border: "1px solid rgba(124,92,255,0.3)",
-                  color: "var(--blue)", fontSize: 13, fontWeight: 700, letterSpacing: 0.5,
-                  marginBottom: 24,
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "7px 16px", borderRadius: 999,
+                  background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)",
+                  color: "#22c55e", fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase",
                 }}>
-                  Available on Android
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e" }} />
+                  Now on Google Play
                 </span>
 
-                <h2 className="dg-h2" style={{ maxWidth: 600, margin: "0 auto", fontSize: "clamp(28px, 4vw, 42px)" }}>
-                  Take your second number <span className="dg-grad-text">everywhere</span>
+                <h2 style={{
+                  color: "#fff", fontSize: "clamp(30px, 3.8vw, 48px)", fontWeight: 800,
+                  lineHeight: 1.15, letterSpacing: "-0.03em", marginTop: 24,
+                }}>
+                  Your second number,<br />
+                  <span style={{ background: "linear-gradient(135deg, #4f8ef7 0%, #7c5cff 50%, #b06aff 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>always in your pocket</span>
                 </h2>
 
-                <p className="dg-lead" style={{ margin: "18px auto 0", maxWidth: 480, fontSize: 16 }}>
-                  Download DIGIRINGO on your Android phone. Call, text, and manage your numbers on the go — all from one sleek app.
+                <p style={{
+                  color: "rgba(255,255,255,0.6)", fontSize: 17, lineHeight: 1.7,
+                  marginTop: 18, maxWidth: 420,
+                }}>
+                  Call, text, and manage all your numbers from one app. Top up your wallet, pick a number, and start talking — no SIM, no contract.
                 </p>
 
+                {/* Feature pills */}
+                <div style={{ display: "flex", gap: 10, marginTop: 28, flexWrap: "wrap" }}>
+                  {["4 MB download", "Works offline", "Dark theme"].map(t => (
+                    <span key={t} style={{
+                      padding: "6px 14px", borderRadius: 999,
+                      background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)",
+                      color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: 600,
+                    }}>{t}</span>
+                  ))}
+                </div>
+
+                {/* Google Play button */}
                 <a
                   href="https://play.google.com/store/apps/details?id=com.digiringo.app"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
-                    display: "inline-flex", alignItems: "center", gap: 14,
-                    marginTop: 36, padding: "16px 36px", borderRadius: 16,
-                    background: "linear-gradient(135deg, #4f8ef7, #7c5cff, #9b6ff7)",
-                    color: "#fff", textDecoration: "none",
-                    fontSize: 16, fontWeight: 800, letterSpacing: -0.3,
-                    boxShadow: "0 8px 32px rgba(124,92,255,0.4), 0 2px 8px rgba(0,0,0,0.3)",
+                    display: "inline-flex", alignItems: "center", gap: 16,
+                    marginTop: 36, padding: "14px 32px 14px 24px", borderRadius: 14,
+                    background: "#fff", color: "#111", textDecoration: "none",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.3)",
                     transition: "transform 0.2s, box-shadow 0.2s",
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 40px rgba(124,92,255,0.5), 0 4px 12px rgba(0,0,0,0.3)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 8px 32px rgba(124,92,255,0.4), 0 2px 8px rgba(0,0,0,0.3)"; }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px) scale(1.02)"; e.currentTarget.style.boxShadow = "0 8px 32px rgba(0,0,0,0.4)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0) scale(1)"; e.currentTarget.style.boxShadow = "0 4px 24px rgba(0,0,0,0.3)"; }}
                 >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.302 2.302-2.302 2.302-2.592-2.302 2.592-2.302zM5.864 2.658L16.8 9.09l-2.302 2.302-8.634-8.734z"/></svg>
-                  Get it on Google Play
+                  <svg width="28" height="28" viewBox="0 0 512 512"><path fill="#4285F4" d="M386.5 257l-105-61 32-32 115 64c7 4 7 12 0 16l-42 23z"/><path fill="#34A853" d="M281.5 196l-250 145c-4 2-9 1-11-3l261-261 32 32-32 87z"/><path fill="#FBBC04" d="M313.5 109L52.5 370c2 4 7 5 11 3l250-145 32-32-32-87z"/><path fill="#EA4335" d="M281.5 316l105-61 42 23c7 4 7 12 0 16l-115 64-32-32v-10z"/><path fill="#34A853" d="M20.5 142c-2 5-3 11-3 17v194c0 6 1 12 3 17l261-261-261 33z"/></svg>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#666", letterSpacing: 0.5, textTransform: "uppercase" }}>Get it on</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5, marginTop: -2 }}>Google Play</div>
+                  </div>
                 </a>
 
-                <div style={{ display: "flex", justifyContent: "center", gap: 32, marginTop: 36, flexWrap: "wrap" }}>
-                  {[
-                    { icon: "⚡", label: "Fast & lightweight" },
-                    { icon: "🔒", label: "Private & secure" },
-                    { icon: "🌙", label: "Beautiful dark UI" },
-                  ].map(f => (
-                    <div key={f.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 18 }}>{f.icon}</span>
-                      <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 14, fontWeight: 600 }}>{f.label}</span>
-                    </div>
-                  ))}
-                </div>
+                <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, marginTop: 16 }}>
+                  Requires Android 7.0+ &middot; Free to download
+                </p>
               </div>
-            </div>
-          </Reveal>
+            </Reveal>
+
+            {/* Right: Phone mockup */}
+            <Reveal delay={150} style={{ position: "relative", zIndex: 1 }}>
+              <div style={{ position: "relative" }}>
+                {/* Glow behind phone */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+                  width: 280, height: 400, borderRadius: "50%",
+                  background: "radial-gradient(circle, rgba(124,92,255,0.2) 0%, rgba(79,142,247,0.08) 50%, transparent 70%)",
+                  pointerEvents: "none", filter: "blur(40px)",
+                }} />
+                <PhoneFrame src={SHOTS.home} caption="" glow={false} />
+              </div>
+            </Reveal>
+          </div>
         </div>
+
+        {/* Mobile: stacked layout override */}
+        <style>{`
+          @media (max-width: 768px) {
+            .dg-section > .dg-wrap > [style*="grid-template-columns: 1fr auto"] {
+              grid-template-columns: 1fr !important;
+              padding: 40px 24px !important;
+              text-align: center;
+            }
+            .dg-section > .dg-wrap > [style*="grid-template-columns: 1fr auto"] .dg-phone-wrap {
+              margin: 0 auto;
+            }
+          }
+        `}</style>
       </section>
 
       {/* -------------------------------------------------------------- CTA BAND */}
