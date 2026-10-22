@@ -18,7 +18,7 @@ const COLS = [
       { label: "Contact", to: "/contact" },
       { label: "About", to: "/" },
       { label: "Careers", to: "/" },
-      { label: "Blog", to: "/" },
+      { label: "Blog", to: "/blog" },
     ],
   },
   {

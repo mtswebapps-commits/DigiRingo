@@ -12,6 +12,7 @@ import { SignupPage } from "./pages/SignupPage";
 import { TermsPage, PrivacyPage } from "./pages/LegalPages";
 import { ResetPage } from "./pages/ResetPage";
 import { VerifyPage } from "./pages/VerifyPage";
+import { BlogPage } from "./pages/BlogPage";
 
 /** Routes that render the bare auth layout (no marketing nav/footer chrome). */
 const AUTH_ROUTES = new Set(["/login", "/signup"]);
@@ -35,6 +36,7 @@ function Pages() {
     case "/signup":
       return <SignupPage />;
     default:
+      if (route === "/blog" || route.startsWith("/blog/")) return <BlogPage />;
       return <HomePage />;
   }
 }

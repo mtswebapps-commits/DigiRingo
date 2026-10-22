@@ -220,6 +220,31 @@ async function getRatesWithMarkup() {
   return _ratesCache;
 }
 
+/* ---- Blog ---- */
+let blogTableReady = false;
+async function ensureBlogTable() {
+  if (blogTableReady || !db) return;
+  await db.rawQuery(`CREATE TABLE IF NOT EXISTS blog_posts (
+    id         INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    title      TEXT         NOT NULL,
+    slug       VARCHAR(255) NOT NULL UNIQUE,
+    excerpt    TEXT,
+    body       LONGTEXT,
+    cover_url  TEXT,
+    author     VARCHAR(255) NOT NULL DEFAULT 'DIGIRINGO',
+    tags       TEXT,
+    status     ENUM('draft','published') NOT NULL DEFAULT 'draft',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_blog_status (status),
+    INDEX idx_blog_slug (slug)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  blogTableReady = true;
+}
+function slugify(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 200);
+}
+
 /* ---- Control Hub config (Payments / Integrations / Settings) helpers ---- */
 const nowId = () => Date.now().toString(36) + createHmac("sha256", ADMIN_SECRET).update(String(process.hrtime.bigint())).digest("hex").slice(0, 5);
 // Secrets the dashboard is allowed to store (encrypted). These override the env.
@@ -1495,6 +1520,64 @@ createServer(async (req, res) => {
       return send(res, 405, { error: "Method not allowed" });
     }
 
+    // ---- Blog management ----
+    if (req.url.startsWith("/api/admin/blog")) {
+      if (!verifyAdminToken(bearer(req))) return send(res, 401, { error: "Not authenticated" });
+      if (!db) return send(res, 503, { error: "Database not configured" });
+      await ensureBlogTable();
+      const u = new URL(req.url, "http://x");
+      // GET — list all posts (including drafts)
+      if (req.method === "GET") {
+        try { return send(res, 200, { posts: await db.rawQuery("SELECT * FROM blog_posts ORDER BY created_at DESC") }); }
+        catch (e) { return send(res, 500, { error: e.message }); }
+      }
+      // POST — create
+      if (req.method === "POST") {
+        const body = await readBody(req); let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
+        if (!d.title) return send(res, 400, { error: "title required" });
+        const slug = d.slug ? slugify(d.slug) : slugify(d.title);
+        if (!slug) return send(res, 400, { error: "Could not generate slug" });
+        try {
+          const r = await db.rawQuery(
+            "INSERT INTO blog_posts (title, slug, excerpt, body, cover_url, author, tags, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [d.title, slug, d.excerpt || "", d.body || "", d.cover_url || "", d.author || "DIGIRINGO", d.tags || "", d.status || "draft"]
+          );
+          const rows = await db.rawQuery("SELECT * FROM blog_posts WHERE id = ?", [r.insertId]);
+          return send(res, 200, { ok: true, post: rows[0] });
+        } catch (e) {
+          if (e.code === "ER_DUP_ENTRY") return send(res, 409, { error: "A post with this slug already exists" });
+          return send(res, 500, { error: e.message });
+        }
+      }
+      // PUT — update
+      if (req.method === "PUT") {
+        const body = await readBody(req); let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
+        if (!d.id) return send(res, 400, { error: "id required" });
+        const fields = []; const vals = [];
+        for (const k of ["title", "slug", "excerpt", "body", "cover_url", "author", "tags", "status"]) {
+          if (d[k] !== undefined) { fields.push(`${k} = ?`); vals.push(k === "slug" ? slugify(d[k]) : d[k]); }
+        }
+        if (!fields.length) return send(res, 400, { error: "Nothing to update" });
+        vals.push(d.id);
+        try {
+          await db.rawQuery(`UPDATE blog_posts SET ${fields.join(", ")} WHERE id = ?`, vals);
+          const rows = await db.rawQuery("SELECT * FROM blog_posts WHERE id = ?", [d.id]);
+          return send(res, 200, { ok: true, post: rows[0] });
+        } catch (e) {
+          if (e.code === "ER_DUP_ENTRY") return send(res, 409, { error: "A post with this slug already exists" });
+          return send(res, 500, { error: e.message });
+        }
+      }
+      // DELETE
+      if (req.method === "DELETE") {
+        const id = Number(u.searchParams.get("id")) || 0;
+        if (!id) return send(res, 400, { error: "id required" });
+        try { await db.rawQuery("DELETE FROM blog_posts WHERE id = ?", [id]); return send(res, 200, { ok: true }); }
+        catch (e) { return send(res, 500, { error: e.message }); }
+      }
+      return send(res, 405, { error: "Method not allowed" });
+    }
+
     // ---- Client management (real data from the app's own DB) ----
     // Everything below is admin-only and DB-backed.
     if (req.url.startsWith("/api/admin/users") || req.url.startsWith("/api/admin/user")
@@ -2171,6 +2254,33 @@ createServer(async (req, res) => {
     if (!d.token) return send(res, 400, { error: "token required" });
     try { await db.savePushToken(uid, d.token, d.platform || "android"); return send(res, 200, { ok: true }); }
     catch (e) { return send(res, 500, { error: e.message }); }
+  }
+
+  // ── /api/blog — public blog endpoints (no auth).
+  if (req.url?.startsWith("/api/blog") && !req.url.startsWith("/api/blog/admin")) {
+    if (!db) return send(res, 503, { error: "Database not configured" });
+    await ensureBlogTable();
+    const u = new URL(req.url, "http://x");
+    // GET /api/blog — list published posts
+    if ((u.pathname === "/api/blog" || u.pathname === "/api/blog/") && req.method === "GET") {
+      const tag = u.searchParams.get("tag") || "";
+      let sql = "SELECT id, title, slug, excerpt, cover_url, author, tags, created_at FROM blog_posts WHERE status = 'published'";
+      const params = [];
+      if (tag) { sql += " AND FIND_IN_SET(?, tags) > 0"; params.push(tag); }
+      sql += " ORDER BY created_at DESC";
+      try { return send(res, 200, { posts: await db.rawQuery(sql, params) }); }
+      catch (e) { return send(res, 500, { error: e.message }); }
+    }
+    // GET /api/blog/:slug — single published post
+    const slugMatch = u.pathname.match(/^\/api\/blog\/([a-z0-9-]+)$/);
+    if (slugMatch && req.method === "GET") {
+      try {
+        const rows = await db.rawQuery("SELECT * FROM blog_posts WHERE slug = ? AND status = 'published' LIMIT 1", [slugMatch[1]]);
+        if (!rows.length) return send(res, 404, { error: "Post not found" });
+        return send(res, 200, { post: rows[0] });
+      } catch (e) { return send(res, 500, { error: e.message }); }
+    }
+    return send(res, 404, { error: "Unknown blog route" });
   }
 
   // ── /api/rates — public, no auth: returns all retail rates (Telnyx wholesale + markup).

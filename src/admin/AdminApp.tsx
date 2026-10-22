@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   LayoutDashboard, Users, Phone, CreditCard, ArrowLeftRight, Radio, Settings, Search, Bell, Wallet, Plug, LogOut,
-  LifeBuoy, UsersRound,
+  LifeBuoy, UsersRound, FileText,
 } from "lucide-react";
 import { A, gradients, font } from "./ui";
 import { DgrMark } from "../app/components/DgrMark";
@@ -19,11 +19,13 @@ import { IntegrationsPage } from "./pages/IntegrationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AdminSupport } from "./pages/AdminSupport";
 import { AdminTeam } from "./pages/AdminTeam";
+import { BlogPage } from "./pages/BlogPage";
 
-type Section = "overview" | "users" | "numbers" | "telnyx" | "payments" | "integrations" | "billing" | "transactions" | "settings" | "support" | "team";
+type Section = "overview" | "users" | "numbers" | "telnyx" | "payments" | "integrations" | "billing" | "transactions" | "settings" | "support" | "team" | "blog";
 
 const ADMIN_NAV: Array<{ id: Section; label: string; Icon: typeof Users }> = [
   { id: "overview", label: "Overview", Icon: LayoutDashboard },
+  { id: "blog", label: "Blog", Icon: FileText },
   { id: "support", label: "Support", Icon: LifeBuoy },
   { id: "team", label: "Team", Icon: UsersRound },
   { id: "users", label: "Users", Icon: Users },
@@ -77,6 +79,7 @@ export default function AdminApp() {
     if (isAgent) return <AdminSupport toast={showToast} />;
     switch (section) {
       case "overview": return <Overview />;
+      case "blog": return <BlogPage toast={showToast} />;
       case "support": return <AdminSupport toast={showToast} />;
       case "team": return <AdminTeam toast={showToast} />;
       case "users": return <UsersPage toast={showToast} />;

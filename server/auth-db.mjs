@@ -43,6 +43,11 @@ export async function dbHealth() {
   return rows[0]?.ok === 1;
 }
 
+export async function rawQuery(sql, params) {
+  const [rows] = await pool.query(sql, params);
+  return rows;
+}
+
 /* ----------------------------------------------------------- password hashing */
 function hashPassword(pw) {
   const salt = randomBytes(16).toString("hex");

@@ -100,3 +100,17 @@ export const adminCreateKey = (name: string) =>
   areq<{ ok: boolean; key: string; config: AdminConfig }>("/api/admin/config/key", { method: "POST", body: JSON.stringify({ name }) });
 export const adminRevokeKey = (id: string) =>
   areq<AdminConfig>(`/api/admin/config/key?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/* ---- blog ---- */
+export interface BlogPost {
+  id: number; title: string; slug: string; excerpt: string; body: string;
+  cover_url: string; author: string; tags: string; status: "draft" | "published";
+  created_at: string; updated_at: string;
+}
+export const adminGetBlogPosts = () => areq<{ posts: BlogPost[] }>("/api/admin/blog");
+export const adminCreateBlogPost = (post: Partial<BlogPost>) =>
+  areq<{ ok: boolean; post: BlogPost }>("/api/admin/blog", { method: "POST", body: JSON.stringify(post) });
+export const adminUpdateBlogPost = (post: Partial<BlogPost>) =>
+  areq<{ ok: boolean; post: BlogPost }>("/api/admin/blog", { method: "PUT", body: JSON.stringify(post) });
+export const adminDeleteBlogPost = (id: number) =>
+  areq<{ ok: boolean }>(`/api/admin/blog?id=${id}`, { method: "DELETE" });
