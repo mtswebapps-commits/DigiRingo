@@ -31,7 +31,19 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
   const brand = state.brand;
   const brandOk = brand?.status === "VERIFIED";
 
+  // Latest regulatory status seen in the docs form (fresher than state.numbers,
+  // which only reloads on refresh) — keyed by number id.
+  const [regSeen, setRegSeen] = useState<Record<string, string>>({});
+
   const isNanp = (n: PhoneNumber) => n.number.replace(/\D/g, "").startsWith("1");
+
+  // Status line + button for a non-US number, from its carrier regulatory state.
+  const regView = (n: PhoneNumber): { text: string; color: string; button: string; primary: boolean } => {
+    const s = regSeen[n.id] ?? n.regStatus;
+    if (s === "requirement-info-under-review") return { text: "Documents under review by the carrier · usually 1–3 business days", color: C.amber, button: "View submission", primary: false };
+    if (s === "requirement-info-exception") return { text: "Some documents were rejected — fix and resubmit", color: C.red, button: "Fix & resubmit", primary: true };
+    return { text: "ID & address needed to activate calls and SMS", color: C.amber, button: "Submit documents", primary: true };
+  };
 
   // Pick the right flow for a number when "Register now" is tapped.
   const onRegister = (n: PhoneNumber) => {
@@ -85,28 +97,30 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {pending.map((n) => (
+            {pending.map((n) => { const rv = isNanp(n) ? null : regView(n); return (
               <div key={n.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: radius.lg, padding: 16 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
                   <div style={{ width: 42, height: 42, borderRadius: 12, background: C.input, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 21 }}>{n.flag}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ color: C.text, fontSize: 14, fontWeight: 700, fontFamily: font.mono }}>{n.number}</p>
-                    <p style={{ color: n.verification === "pending" ? C.amber : C.red, fontSize: 12, marginTop: 2, fontWeight: 600 }}>
-                      {!isNanp(n) ? "ID & address needed to activate calls and SMS" : n.verification === "pending" ? "Verification pending" : "Local numbers registration"}
+                    <p style={{ color: rv ? rv.color : n.verification === "pending" ? C.amber : C.red, fontSize: 12, marginTop: 2, fontWeight: 600 }}>
+                      {rv ? rv.text : n.verification === "pending" ? "Verification pending" : "Local numbers registration"}
                     </p>
                   </div>
                 </div>
                 <button onClick={() => onRegister(n)} style={{
-                  width: "100%", padding: "13px", borderRadius: radius.md, background: gradients.brand,
-                  border: "none", color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: font.sans,
+                  width: "100%", padding: "13px", borderRadius: radius.md,
+                  background: !rv || rv.primary ? gradients.brand : C.input,
+                  border: !rv || rv.primary ? "none" : `1px solid ${C.line}`,
+                  color: !rv || rv.primary ? "#fff" : C.text, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: font.sans,
                   marginBottom: 8,
-                }}>{isNanp(n) ? "Register now" : "Submit documents"}</button>
+                }}>{rv ? rv.button : "Register now"}</button>
                 <button onClick={() => showToast("Opening registration guide…")} style={{
                   width: "100%", padding: "12px", borderRadius: radius.md, background: C.input,
                   border: `1px solid ${C.line}`, color: C.text, fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: font.sans,
                 }}>Learn more</button>
               </div>
-            ))}
+            ); })}
           </div>
         )}
       </div>
@@ -137,7 +151,7 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
       {/* Verification forms (in-app — no Telnyx popup) */}
       {form?.kind === "brand" && <BrandForm onClose={() => setForm(null)} desktop={desktop} />}
       {form?.kind === "campaign" && <CampaignForm numberId={form.numberId} onClose={() => setForm(null)} desktop={desktop} />}
-      {form?.kind === "docs" && <RegulatoryDocsForm numberId={form.numberId} phoneNumber={form.phoneNumber} onClose={() => setForm(null)} desktop={desktop} />}
+      {form?.kind === "docs" && <RegulatoryDocsForm numberId={form.numberId} phoneNumber={form.phoneNumber} onClose={() => setForm(null)} onStatus={(s) => { const id = form.numberId; if (s) setRegSeen((p) => ({ ...p, [id]: s })); }} desktop={desktop} />}
     </div>
   );
 }

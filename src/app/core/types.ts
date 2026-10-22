@@ -20,6 +20,9 @@ export interface PhoneNumber {
   voice: boolean;
   price: number;          // monthly price
   verification: VerificationStatus;
+  /** Carrier regulatory state for non-US numbers (Telnyx phone_number status,
+   *  e.g. requirement-info-pending / -under-review / -exception / active). */
+  regStatus?: string;
   /** Per-number settings (Quo-style "number action" screen). */
   settings: NumberSettings;
 }

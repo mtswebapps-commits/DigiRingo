@@ -302,7 +302,7 @@ function textPrefill(name: string, user: { name?: string; email?: string } | nul
   return "";
 }
 
-export function RegulatoryDocsForm({ phoneNumber, onClose, desktop = false }: { numberId: string; phoneNumber: string; onClose: () => void; desktop?: boolean }) {
+export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = false }: { numberId: string; phoneNumber: string; onClose: () => void; onStatus?: (status: string | null) => void; desktop?: boolean }) {
   const { state, showToast } = useApp();
   const e164 = phoneNumber.replace(/[^\d+]/g, "");
   const [info, setInfo] = useState<ApiRequirements | null>(null);
@@ -316,6 +316,7 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, desktop = false }: { 
   useEffect(() => {
     apiGetRequirements(e164).then((r) => {
       setInfo(r);
+      onStatus?.(r.status);
       setTexts(Object.fromEntries(r.requirements.filter((q) => q.type === "textual").map((q) => [q.id, textPrefill(q.name, state.user)])));
       if (state.user?.name) {
         const [first, ...rest] = state.user.name.split(" ");
@@ -351,6 +352,9 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, desktop = false }: { 
       }
       const r = await apiSubmitRequirements(e164, values);
       setInfo(r);
+      // Telnyx flips the number to under-review a moment after the PATCH; reflect
+      // that right away so the Trust Center list doesn't still say "needed".
+      onStatus?.(r.status === "requirement-info-pending" || r.status === "requirement-info-exception" ? "requirement-info-under-review" : r.status);
       showToast("Submitted — the number activates once the carrier approves it");
     } catch (e) { showToast(e instanceof Error ? e.message : "Submission failed — try again", "error"); }
     setBusy(false);

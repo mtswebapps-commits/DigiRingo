@@ -98,6 +98,7 @@ export function ownedToAppNumber(
     verification: iso === "US"
       ? prev?.verification ?? "unverified"
       : n.telnyxStatus && n.telnyxStatus !== "active" ? "pending" : "verified",
+    regStatus: n.telnyxStatus ?? undefined,
     settings: prev?.settings ?? defaultSettings(n.kind === "tollfree" ? "Toll-free" : "New Number"),
   };
 }
