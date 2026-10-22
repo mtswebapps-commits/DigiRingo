@@ -14,6 +14,7 @@ import type { ConversationThread } from "../services/telnyx/types";
 import { getBundle, NUMBER_RENTAL } from "../core/plans";
 import type { BillingCycle, NumberKind, PayMethod } from "../core/plans";
 import { fetchRates } from "../core/rates";
+import { dialToE164 } from "../core/dial";
 import {
   apiLogin, apiRegister, apiMe, apiWallet, apiBuyNumber, apiReleaseNumber, apiSubscribe, apiGetSubscription, apiSetAutoRenew, apiCancelSubscription,
   apiResendVerification, apiGetCalls, apiGetNumbers, apiLogCall,
@@ -78,21 +79,6 @@ const toE164 = (display: string) => {
   return d.startsWith("+") ? d : `+${d}`;
 };
 
-/** Dialed input → E.164. Numbers typed without a country code take the caller-ID's country. */
-const dialToE164 = (input: string, callerE164: string | null) => {
-  const raw = input.replace(/[^\d+]/g, "");
-  if (raw.startsWith("+")) return raw;
-  if (raw.startsWith("00")) return `+${raw.slice(2)}`;
-  const nanp = !callerE164 || callerE164.startsWith("+1");
-  if (nanp) {
-    if (raw.length === 10) return `+1${raw}`;
-    if (raw.length === 11 && raw.startsWith("1")) return `+${raw}`;
-    return `+${raw}`;
-  }
-  const cc = ["44", "49", "33", "81", "61", "55"].find((c) => callerE164.startsWith(`+${c}`));
-  if (cc && raw.startsWith("0")) return `+${cc}${raw.slice(1)}`;
-  return `+${raw}`;
-};
 
 /** Map a persisted server call-log row onto the app's CallLog shape. */
 const apiCallToApp = (c: ApiCallLog, numbers: PhoneNumber[]): CallLog => {

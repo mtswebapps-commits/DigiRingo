@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent } from "react";
 import { X, Delete, Phone, ChevronDown, Check } from "lucide-react";
 import { C, gradients, font } from "../core/theme";
 import { useApp, useActiveNumber } from "../store/AppStore";
+import { dialCode } from "../core/dial";
 
 interface Props { onClose: () => void; onCall: (number: string) => void; }
 
@@ -22,12 +23,43 @@ export function DialerScreen({ onClose, onCall }: Props) {
   // Only numbers with voice capability can place calls.
   const callable = state.numbers.filter((n) => n.voice);
 
+  // Pre-fill the calling-from number's country code ("+1", "+44", …) so the
+  // user only types the rest. Switching the caller swaps the prefix in place.
+  const cc = dialCode(active?.number);
+  const prefix = cc ? `+${cc}` : "";
+  const lastPrefix = useRef("");
+  useEffect(() => {
+    setValue((v) => {
+      const old = lastPrefix.current;
+      if (!v || v === old) return prefix;
+      if (old && v.startsWith(old)) return prefix + v.slice(old.length);
+      return v;
+    });
+    lastPrefix.current = prefix;
+  }, [prefix]);
+
   // Keep only dialable characters (digits, +, *, #) — strips spaces/dashes/parens from pasted numbers.
-  const sanitize = (raw: string) => raw.replace(/[^\d+*#]/g, "").slice(0, 18);
+  // A "+" typed/pasted after the prefix starts a fresh international number.
+  const sanitize = (raw: string) => {
+    const s = raw.replace(/[^\d+*#]/g, "");
+    const i = s.lastIndexOf("+");
+    return (i > 0 ? s.slice(i) : s).slice(0, 18);
+  };
+  // Pasting a full number replaces the prefix instead of being appended to it.
+  const paste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const t = e.clipboardData.getData("text").replace(/[^\d+]/g, "");
+    if (!t || (value && value !== prefix)) return;
+    e.preventDefault();
+    const full = t.startsWith("+") ? t : t.startsWith("00") ? `+${t.slice(2)}`
+      : cc === "1" && t.length === 11 && t.startsWith("1") ? `+${t}`
+      : cc !== "1" && t.startsWith(cc) && t.length > 10 ? `+${t}`
+      : prefix + t;
+    setValue(sanitize(full));
+  };
   const press = (d: string) => { setValue((v) => sanitize(v + d)); inputRef.current?.focus(); };
   const back = () => { setValue((v) => v.slice(0, -1)); inputRef.current?.focus(); };
   const call = () => {
-    if (!value.trim()) { showToast("Enter a number to call", "error"); return; }
+    if (!value.trim() || value === prefix) { showToast("Enter a number to call", "error"); return; }
     onCall(value.trim());
   };
 
@@ -54,6 +86,7 @@ export function DialerScreen({ onClose, onCall }: Props) {
           ref={inputRef}
           value={value}
           onChange={(e) => setValue(sanitize(e.target.value))}
+          onPaste={paste}
           onKeyDown={(e) => e.key === "Enter" && call()}
           autoFocus
           inputMode="none"
