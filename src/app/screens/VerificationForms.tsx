@@ -454,3 +454,64 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = f
     </Sheet>
   );
 }
+
+/* ── Registration guide (the Trust Center "Learn more" button) ───────────── */
+
+const GUIDE: Record<"us" | "intl", { intro: string; steps: [string, string][]; tips: string[] }> = {
+  us: {
+    intro: "US carriers require every business texting from a local (10DLC) number to be registered. Calls work right away — registration only unlocks outbound SMS.",
+    steps: [
+      ["Register your brand", "Your legal business name, EIN/tax ID, address and contact. The carrier checks these against official records, so they must match exactly."],
+      ["Create a campaign", "Describe what you'll text (e.g. customer support, appointment reminders) and give 2 sample messages, including how people opt in and how they can reply STOP."],
+      ["Attach your numbers", "Once the campaign is approved, every US number on your account is linked to it with one tap."],
+    ],
+    tips: [
+      "Brand review is usually minutes to 1 day; campaign review 1–7 business days.",
+      "Sole proprietors without an EIN can still register — use your own legal name.",
+      "Fake or mismatched business details are always rejected by the carrier.",
+    ],
+  },
+  intl: {
+    intro: "By law, numbers in the UK and many other countries must be linked to a real, identified owner before the carrier switches them on. Until approved, calls and texts on the number don't work.",
+    steps: [
+      ["Tap “Submit documents”", "The form asks exactly what the carrier needs for that country — usually your contact details, a short description of how you'll use the number, and your address."],
+      ["Upload two documents", "A photo ID (passport, national ID or driving licence) and a proof of address dated within the last 3 months (utility bill, bank statement). Clear photo or PDF, under 8 MB."],
+      ["Wait for approval", "The carrier reviews it, usually in 1–3 business days. The number then activates automatically — nothing else to do."],
+      ["If something is rejected", "The number shows “Fix & resubmit”. Open it — only the rejected fields need to be filled again."],
+    ],
+    tips: [
+      "The name and address must be the same on your ID, your proof of address and the form.",
+      "For personal use write e.g. “Personal use: calls and SMS with friends and family. The number is not resold or shared with third parties.”",
+      "No business? Write “N/A” for the company website.",
+      "UK landline numbers (01…/02…) are voice only — they can't receive SMS or OTP codes. Pick a mobile (07…) number for texts.",
+    ],
+  },
+};
+
+export function RegistrationGuide({ kind, onClose, desktop = false }: { kind: "us" | "intl"; onClose: () => void; desktop?: boolean }) {
+  const g = GUIDE[kind];
+  return (
+    <Sheet title={kind === "us" ? "US number registration (10DLC)" : "Activating an international number"} icon={<ShieldCheck size={17} />} onClose={onClose} desktop={desktop}>
+      <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.55, marginBottom: 18 }}>{g.intro}</p>
+      {g.steps.map(([title, body], i) => (
+        <div key={title} style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+          <span style={{ width: 26, height: 26, borderRadius: 13, background: gradients.brand, color: "#fff", fontSize: 12.5, fontWeight: 800, display: "grid", placeItems: "center", flexShrink: 0 }}>{i + 1}</span>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>{title}</p>
+            <p style={{ color: C.muted, fontSize: 12.5, marginTop: 3, lineHeight: 1.5 }}>{body}</p>
+          </div>
+        </div>
+      ))}
+      <div style={{ background: C.input, border: `1px solid ${C.line}`, borderRadius: radius.md, padding: 14, marginTop: 6 }}>
+        <p style={{ color: C.text, fontSize: 12.5, fontWeight: 800, marginBottom: 8 }}>Tips</p>
+        {g.tips.map((t) => (
+          <div key={t} style={{ display: "flex", gap: 8, marginBottom: 7 }}>
+            <Check size={14} color={C.green} style={{ flexShrink: 0, marginTop: 2 }} />
+            <p style={{ color: C.muted, fontSize: 12.5, lineHeight: 1.5 }}>{t}</p>
+          </div>
+        ))}
+      </div>
+      <button onClick={onClose} style={{ width: "100%", marginTop: 18, padding: 13, borderRadius: radius.md, background: gradients.brand, border: "none", color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: font.sans }}>Got it</button>
+    </Sheet>
+  );
+}

@@ -3,14 +3,15 @@ import { ArrowLeft, ShieldCheck, Info } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
 import type { PhoneNumber } from "../core/types";
-import { BrandForm, CampaignForm, RegulatoryDocsForm } from "./VerificationForms";
+import { BrandForm, CampaignForm, RegulatoryDocsForm, RegistrationGuide } from "./VerificationForms";
 
 interface Props { onBack: () => void; desktop?: boolean; }
 
 type Form =
   | { kind: "brand" }
   | { kind: "campaign"; numberId: string }
-  | { kind: "docs"; numberId: string; phoneNumber: string };
+  | { kind: "docs"; numberId: string; phoneNumber: string }
+  | { kind: "guide"; region: "us" | "intl" };
 
 /**
  * Trust center — the verification flow. Carriers require VoIP numbers to be
@@ -115,7 +116,7 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
                   color: !rv || rv.primary ? "#fff" : C.text, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: font.sans,
                   marginBottom: 8,
                 }}>{rv ? rv.button : "Register now"}</button>
-                <button onClick={() => showToast("Opening registration guide…")} style={{
+                <button onClick={() => setForm({ kind: "guide", region: isNanp(n) ? "us" : "intl" })} style={{
                   width: "100%", padding: "12px", borderRadius: radius.md, background: C.input,
                   border: `1px solid ${C.line}`, color: C.text, fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: font.sans,
                 }}>Learn more</button>
@@ -151,6 +152,7 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
       {/* Verification forms (in-app — no Telnyx popup) */}
       {form?.kind === "brand" && <BrandForm onClose={() => setForm(null)} desktop={desktop} />}
       {form?.kind === "campaign" && <CampaignForm numberId={form.numberId} onClose={() => setForm(null)} desktop={desktop} />}
+      {form?.kind === "guide" && <RegistrationGuide kind={form.region} onClose={() => setForm(null)} desktop={desktop} />}
       {form?.kind === "docs" && <RegulatoryDocsForm numberId={form.numberId} phoneNumber={form.phoneNumber} onClose={() => setForm(null)} onStatus={(s) => { const id = form.numberId; if (s) setRegSeen((p) => ({ ...p, [id]: s })); }} desktop={desktop} />}
     </div>
   );
