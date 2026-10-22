@@ -13,7 +13,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
   const { state, addBalance, showToast, syncBillingSoon } = useApp();
   const [sheet, setSheet] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
-  const gateway: Gateway = "freemius";
+  const gateway: Gateway = "paypal";
   const unverified = state.numbers.filter((n) => n.verification !== "verified").length;
 
   const [card, setCard] = useState<ApiSavedCard | null>(null);
@@ -42,9 +42,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
     setBusy(amount);
     try {
       await startGatewayCheckout(gateway, { kind: "topup", amount }, { email: state.user?.email, name: state.user?.name });
-      if (gateway === "freemius") {
-        showToast("Payment received — updating your account…");
-        syncBillingSoon();
+      if (gateway === "paypal") {
         setBusy(null);
         setSheet(false);
       }

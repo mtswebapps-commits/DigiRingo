@@ -1977,11 +1977,9 @@ createServer(async (req, res) => {
     }
   }
 
-  // 3b) Buy a number — server-orchestrated so it can't be bypassed. A number
-  //     ALWAYS belongs to a plan: the user must have an active bundle. The first
-  //     number on a plan is FREE (included); extra numbers cost the flat rental
-  //     (plans.mjs) up to the plan's cap; beyond the cap they must upgrade. The
-  //     server decides free-vs-paid and the amount — the client price is ignored.
+  // 3b) Buy a number — server-orchestrated so it can't be bypassed. Pay-as-you-go:
+  //     every number costs the flat rental (markup over Telnyx wholesale), billed
+  //     to the wallet. No plan required — just sufficient wallet balance.
   if (req.url?.startsWith("/api/numbers/buy") && req.method === "POST") {
     if (!db) return send(res, 503, { error: "Database not configured" });
     if (!telnyxKey()) return send(res, 503, { error: "Telephony not configured" });
@@ -1993,15 +1991,7 @@ createServer(async (req, res) => {
     const kind = data.kind === "tollfree" ? "tollfree" : "local";
     if (!phoneNumber) return send(res, 400, { error: "Invalid request" });
 
-    // A plan is REQUIRED to hold a number. Enforce the plan's number-capacity:
-    // first number free, extras at the rental rate, nothing beyond the cap.
-    let cap;
-    try { cap = await db.numberCapacity(uid); }
-    catch (e) { return send(res, e.status || 500, { error: e.message }); }
-    if (!cap.hasPlan) return send(res, 402, { error: "Choose a plan to get a number — every number belongs to a plan.", needsPlan: true });
-    if (cap.atCap) return send(res, 403, { error: `You've reached your plan's limit of ${cap.max} numbers. Upgrade to add more.`, atCap: true });
-
-    const free = !!cap.isFree;
+    const free = false;
     // Look up actual Telnyx wholesale cost for this number and apply markup.
     let wholesaleCost = kind === "tollfree" ? 2.0 : 1.0;
     try {
@@ -2014,27 +2004,21 @@ createServer(async (req, res) => {
       }
     } catch { /* fall back to default wholesale */ }
     const amount = free ? 0 : markup(wholesaleCost, 2);
-    const label = free ? `Number ${phoneNumber} (free with plan)` : `Extra number ${phoneNumber} (${kind})`;
+    const label = `Number ${phoneNumber} (${kind})`;
 
-    // 1) take payment for EXTRA numbers only (the included one is free). Extra
-    //    numbers are billed to the WALLET — top it up via Stripe if it's short.
-    let paid = { method: "included" };
-    if (!free) {
-      try { paid = await takePayment(uid, amount, label); }
-      catch (e) { return send(res, e.status || 500, { error: e.message }); }
-    }
+    // 1) Pay from wallet — every number costs its rental.
+    let paid;
+    try { paid = await takePayment(uid, amount, label); }
+    catch (e) { return send(res, e.status || 500, { error: e.message }); }
 
-    // 2) place the Telnyx order (shared helper — also used by the Stripe webhook)
+    // 2) Place the Telnyx order
     try {
       const order = await orderTelnyxNumber(uid, phoneNumber, kind, { free, amount });
       const wallet = paid.wallet;
-      const capacity = await db.numberCapacity(uid).catch(() => cap);
-      return send(res, 200, { ok: true, order, wallet, free, capacity });
+      return send(res, 200, { ok: true, order, wallet, free });
     } catch (e) {
-      // 3) refund the paid extra number to the wallet if the order failed (free
-      //    numbers took no money, so there's nothing to refund).
       let wallet;
-      if (!free) { try { wallet = await db.creditWallet(uid, amount, `Refund — ${phoneNumber} order failed`); } catch { /* ignore */ } }
+      try { wallet = await db.creditWallet(uid, amount, `Refund — ${phoneNumber} order failed`); } catch { /* ignore */ }
       return send(res, 502, { error: e.message, wallet });
     }
   }
