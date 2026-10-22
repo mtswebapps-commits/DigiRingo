@@ -897,10 +897,57 @@ async function telnyxNumberStatus(e164) {
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.status;
   try {
     const r = await telnyxFetch(`/phone_numbers?filter[phone_number]=${encodeURIComponent(e164)}`);
-    const status = (await r.json())?.data?.[0]?.status || null;
+    const pn = (await r.json())?.data?.[0];
+    const status = pn?.status || null;
     numberStatusCache.set(e164, { status, at: Date.now() });
+    // Numbers ordered while regulatory-pending come out without a messaging profile.
+    const mp = process.env.VITE_TELNYX_MESSAGING_PROFILE_ID;
+    if (pn && status === "active" && !pn.messaging_profile_id && mp) {
+      telnyxFetch(`/phone_numbers/${pn.id}/messaging`, { method: "PATCH", body: JSON.stringify({ messaging_profile_id: mp }) }).catch(() => {});
+    }
     return status;
   } catch { return hit?.status ?? null; }
+}
+
+// Per-field values/statuses live on the order's phone_numbers entry, not on the sub-order.
+async function findSubNumberOrder(e164) {
+  const r = await telnyxFetch(`/number_orders?filter[phone_numbers.phone_number]=${encodeURIComponent(e164)}`);
+  const orders = (await r.json())?.data || [];
+  orders.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const order = orders[0];
+  const subId = order?.sub_number_orders_ids?.[0];
+  if (!subId) return null;
+  const pn = (order.phone_numbers || []).find((p) => p.phone_number === e164) || {};
+  return {
+    id: subId, country_code: pn.country_code, phone_number_type: pn.phone_number_type,
+    status: pn.status || order.status, requirements_met: pn.requirements_met ?? order.requirements_met,
+    regulatory_requirements: pn.regulatory_requirements || [],
+  };
+}
+
+const requirementTypesCache = new Map();
+async function describeRequirements(sub) {
+  const key = `${sub.country_code}:${sub.phone_number_type}`;
+  let types = requirementTypesCache.get(key);
+  if (!types) {
+    const r = await telnyxFetch(`/requirements?filter[country_code]=${sub.country_code}&filter[phone_number_type]=${sub.phone_number_type}&filter[action]=ordering`);
+    types = new Map(((await r.json())?.data?.[0]?.requirement_types || []).map((t) => [t.id, t]));
+    requirementTypesCache.set(key, types);
+  }
+  return {
+    country: sub.country_code,
+    orderStatus: sub.status,
+    requirementsMet: !!sub.requirements_met,
+    requirements: (sub.regulatory_requirements || []).map((q) => {
+      const t = types.get(q.requirement_id) || {};
+      const rejected = /declin|reject|denied/i.test(q.status || "");
+      return {
+        id: q.requirement_id, type: t.type || q.field_type, name: t.name || "Requirement",
+        description: t.description || "", example: t.example || "",
+        status: q.status || null, rejected, submitted: !!q.field_value && !rejected,
+      };
+    }),
+  };
 }
 
 /** Place a Telnyx number order + record ownership + log it. Throws on failure.
@@ -920,7 +967,9 @@ async function orderTelnyxNumber(uid, phoneNumber, kind = "local", { free = fals
   const telnyxId = j?.data?.phone_numbers?.[0]?.id || "";
   await db.provisionNumber(uid, { e164: phoneNumber, kind, telnyxId, free });
   const isUS = phoneNumber.startsWith("+1");
-  const trustNote = isUS ? " Register it in Trust center to send SMS." : "";
+  const needsDocs = !isUS && j?.data?.requirements_met === false;
+  const trustNote = isUS ? " Register it in Trust center to send SMS."
+    : needsDocs ? " Submit your ID & address in Trust center to activate it." : "";
   await db.logActivity(uid, { kind: "number", title: "Number added", body: free
     ? `${phoneNumber} added with your plan.${trustNote}`
     : `${phoneNumber} added for $${Number(amount).toFixed(2)}/mo.${trustNote}` });
@@ -1979,6 +2028,71 @@ createServer(async (req, res) => {
       } catch (e) { return send(res, e.status || 500, { error: e.message }); }
     }
     return send(res, 405, { error: "Method not allowed" });
+  }
+
+  // Regulatory requirements (non-US numbers): read what Telnyx needs for a number the
+  // user owns, and submit text / document / address answers onto its sub-number-order.
+  if (req.url?.startsWith("/api/numbers/requirements")) {
+    if (!db) return send(res, 503, { error: "Database not configured" });
+    const uid = db.verifyToken(bearer(req));
+    if (!uid) return send(res, 401, { error: "Not authenticated" });
+    let e164, data = {};
+    if (req.method === "GET") e164 = new URL(req.url, "http://x").searchParams.get("e164");
+    else if (req.method === "POST") {
+      try { data = JSON.parse((await readBody(req)) || "{}"); } catch { return send(res, 400, { error: "Invalid request" }); }
+      e164 = data.e164;
+    } else return send(res, 405, { error: "Method not allowed" });
+    e164 = String(e164 || "").replace(/[^\d+]/g, "");
+    const owner = await db.findNumberOwner(e164).catch(() => null);
+    if (!owner || Number(owner.userId) !== Number(uid)) return send(res, 404, { error: "Number not found on your account" });
+    try {
+      const sub = await findSubNumberOrder(e164);
+      if (req.method === "GET") {
+        numberStatusCache.delete(e164);
+        const status = await telnyxNumberStatus(e164);
+        if (!sub) return send(res, 200, { status, requirements: [], requirementsMet: true });
+        return send(res, 200, { status, ...(await describeRequirements(sub)) });
+      }
+      if (!sub) return send(res, 400, { error: "This number has no pending requirements" });
+      const out = [];
+      for (const [requirementId, v] of Object.entries(data.values || {})) {
+        if (v == null || v === "") continue;
+        if (typeof v === "string") { out.push({ requirement_id: requirementId, field_value: v.trim() }); continue; }
+        if (v.file) {
+          const buf = Buffer.from(String(v.file.data || ""), "base64");
+          if (!buf.length || buf.length > 10 * 1024 * 1024) return send(res, 400, { error: `${v.file.name || "File"}: must be under 10 MB` });
+          const fd = new FormData();
+          fd.append("file", new Blob([buf], { type: v.file.type || "application/octet-stream" }), v.file.name || "document");
+          const r = await fetch(`${TELNYX}/documents`, { method: "POST", headers: { Authorization: `Bearer ${telnyxKey()}` }, body: fd });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j?.data?.id) return send(res, 400, { error: `Upload failed: ${j?.errors?.[0]?.detail || r.status}` });
+          out.push({ requirement_id: requirementId, field_value: j.data.id });
+          continue;
+        }
+        if (v.address) {
+          const a = v.address;
+          const r = await telnyxFetch("/addresses", { method: "POST", body: JSON.stringify({
+            first_name: a.firstName, last_name: a.lastName, business_name: a.businessName || `${a.firstName} ${a.lastName}`,
+            street_address: a.street, extended_address: a.street2 || undefined, locality: a.city,
+            administrative_area: a.region || undefined, postal_code: a.postalCode || undefined,
+            country_code: String(a.country || "").toUpperCase(), phone_number: a.phone || undefined,
+          }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j?.data?.id) return send(res, 400, { error: `Address: ${j?.errors?.[0]?.detail || "rejected"}` });
+          out.push({ requirement_id: requirementId, field_value: j.data.id });
+        }
+      }
+      if (!out.length) return send(res, 400, { error: "Nothing to submit" });
+      const r = await telnyxFetch(`/sub_number_orders/${sub.id}`, { method: "PATCH", body: JSON.stringify({ regulatory_requirements: out }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return send(res, 400, { error: j?.errors?.[0]?.detail || "Telnyx rejected the submission" });
+      await db.logActivity(uid, { kind: "number", title: "Documents submitted", body: `${e164}: your details were sent for review. The number activates once approved.` }).catch(() => {});
+      numberStatusCache.delete(e164);
+      const fresh = (await findSubNumberOrder(e164)) || sub;
+      return send(res, 200, { ok: true, status: await telnyxNumberStatus(e164), ...(await describeRequirements(fresh)) });
+    } catch (e) {
+      return send(res, 502, { error: e.message || "Couldn't reach Telnyx" });
+    }
   }
 
   if (req.url?.startsWith("/api/numbers") && req.method === "GET") {

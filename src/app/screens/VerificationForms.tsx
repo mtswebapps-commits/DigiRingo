@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { X, ShieldCheck, Building2, Megaphone, FileUp, Check, Loader2 } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
-import type { BrandRegistration, CampaignRegistration, RegulatoryRequirement } from "../core/types";
+import type { BrandRegistration, CampaignRegistration } from "../core/types";
 import { useApp } from "../store/AppStore";
+import { apiGetRequirements, apiSubmitRequirements, type ApiAddressInput, type ApiRequirement, type ApiRequirementValue, type ApiRequirements } from "../services/api";
 
 /* ============================================================================
    Verification forms — the real KYC/registration flows that gate SMS sending.
@@ -280,60 +281,170 @@ export function CampaignForm({ numberId, onClose, desktop = false }: { numberId:
 }
 
 /* --------------------------------------------------------- REGULATORY DOCS form */
-export function RegulatoryDocsForm({ numberId, phoneNumber, onClose, desktop = false }: { numberId: string; phoneNumber: string; onClose: () => void; desktop?: boolean }) {
-  const { getNumberRequirements, submitNumberDoc, markNumberVerified, showToast } = useApp();
-  const [reqs, setReqs] = useState<RegulatoryRequirement[] | null>(null);
+const ADDRESS_COUNTRIES = [
+  ["GB", "United Kingdom"], ["US", "United States"], ["PK", "Pakistan"], ["AE", "United Arab Emirates"], ["SA", "Saudi Arabia"],
+  ["IN", "India"], ["CA", "Canada"], ["AU", "Australia"], ["DE", "Germany"], ["FR", "France"], ["IE", "Ireland"],
+  ["NL", "Netherlands"], ["ES", "Spain"], ["IT", "Italy"], ["QA", "Qatar"], ["BD", "Bangladesh"], ["TR", "Turkey"],
+].map(([v, l]) => ({ v, l }));
+
+const MAX_FILE_MB = 8;
+const emptyAddress = (): ApiAddressInput => ({ firstName: "", lastName: "", businessName: "", street: "", street2: "", city: "", region: "", postalCode: "", country: "GB" });
+
+const fileToBase64 = (f: File) => new Promise<string>((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(",")[1] || "");
+  r.onerror = () => reject(new Error(`Couldn't read ${f.name}`));
+  r.readAsDataURL(f);
+});
+
+function textPrefill(name: string, user: { name?: string; email?: string } | null) {
+  if (/contact information/i.test(name) && user?.name) return `Contact: ${user.name} | Business: N/A | Phone: `;
+  return "";
+}
+
+export function RegulatoryDocsForm({ phoneNumber, onClose, desktop = false }: { numberId: string; phoneNumber: string; onClose: () => void; desktop?: boolean }) {
+  const { state, showToast } = useApp();
+  const e164 = phoneNumber.replace(/[^\d+]/g, "");
+  const [info, setInfo] = useState<ApiRequirements | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [texts, setTexts] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<Record<string, File>>({});
+  const [addr, setAddr] = useState<ApiAddressInput>(emptyAddress);
   const [busy, setBusy] = useState(false);
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  useEffect(() => { getNumberRequirements(phoneNumber).then(setReqs).catch(() => setReqs([])); }, [phoneNumber, getNumberRequirements]);
+  useEffect(() => {
+    apiGetRequirements(e164).then((r) => {
+      setInfo(r);
+      setTexts(Object.fromEntries(r.requirements.filter((q) => q.type === "textual").map((q) => [q.id, textPrefill(q.name, state.user)])));
+      if (state.user?.name) {
+        const [first, ...rest] = state.user.name.split(" ");
+        setAddr((a) => ({ ...a, firstName: first, lastName: rest.join(" ") }));
+      }
+    }).catch((e) => setLoadError(e instanceof Error ? e.message : "Couldn't load requirements"));
+  }, [e164]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const docReqs = (reqs ?? []).filter((r) => r.type === "document");
-  const allUploaded = docReqs.length > 0 && docReqs.every((r) => files[r.id]);
+  const open = (info?.requirements ?? []).filter((q) => !q.submitted);
+  const unsupported = open.filter((q) => !["textual", "document", "address"].includes(q.type));
+  const setA = (k: keyof ApiAddressInput) => (v: string) => setAddr((p) => ({ ...p, [k]: v }));
+  const addrOk = !!(addr.firstName.trim() && addr.lastName.trim() && addr.street.trim() && addr.city.trim() && addr.country);
+  const filled = (q: ApiRequirement) =>
+    q.type === "textual" ? !!texts[q.id]?.trim() : q.type === "document" ? !!files[q.id] : q.type === "address" ? addrOk : true;
+  const ready = open.length > 0 && unsupported.length === 0 && open.every(filled);
+
+  const pickFile = (id: string, f?: File) => {
+    if (!f) return;
+    if (f.size > MAX_FILE_MB * 1024 * 1024) { showToast(`File must be under ${MAX_FILE_MB} MB`, "error"); return; }
+    setFiles((p) => ({ ...p, [id]: f }));
+  };
 
   const submit = async () => {
+    const missing = open.find((q) => !filled(q));
+    if (missing) { showToast(`${missing.name} is required`, "error"); return; }
     setBusy(true);
     try {
-      for (const r of docReqs) await submitNumberDoc(phoneNumber, r.id, files[r.id]);
-      markNumberVerified(numberId);
-      onClose();
-    } catch (e) { showToast(e instanceof Error ? e.message : "Upload failed — try again", "error"); }
+      const values: Record<string, ApiRequirementValue> = {};
+      for (const q of open) {
+        if (q.type === "textual") values[q.id] = texts[q.id].trim();
+        else if (q.type === "document") { const f = files[q.id]; values[q.id] = { file: { name: f.name, type: f.type, data: await fileToBase64(f) } }; }
+        else if (q.type === "address") values[q.id] = { address: addr };
+      }
+      const r = await apiSubmitRequirements(e164, values);
+      setInfo(r);
+      showToast("Submitted — the number activates once the carrier approves it");
+    } catch (e) { showToast(e instanceof Error ? e.message : "Submission failed — try again", "error"); }
     setBusy(false);
   };
 
+  const card = (ok: boolean): CSSProperties => ({ background: C.card, border: `1px solid ${ok ? "rgba(34,197,94,0.4)" : C.line}`, borderRadius: radius.md, padding: 14, marginBottom: 12 });
+  const hint = (q: ApiRequirement) => (
+    <>
+      <p style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>{q.name}</p>
+      {q.rejected && <p style={{ color: C.red, fontSize: 12, marginTop: 3, fontWeight: 700 }}>Rejected by the carrier — please correct and resubmit.</p>}
+      <p style={{ color: C.muted, fontSize: 12, marginTop: 3, lineHeight: 1.45 }}>{q.description.length > 260 ? `${q.description.slice(0, 260)}…` : q.description}</p>
+    </>
+  );
+
+  const active = info?.status === "active";
+  const allSent = !!info && info.requirements.length > 0 && open.length === 0;
+
   return (
-    <Sheet title="Number documents" icon={<FileUp size={17} />} onClose={onClose} desktop={desktop}>
+    <Sheet title="Activate your number" icon={<FileUp size={17} />} onClose={onClose} desktop={desktop}>
       <p style={{ color: C.muted, fontSize: 12.5, lineHeight: 1.55, marginBottom: 16 }}>
-        This number's country requires proof of identity / address by law. Upload the documents below — they go
-        securely to the carrier for review.
+        By law, {info?.country === "GB" ? "UK" : "this country's"} numbers need the owner's identity and address before
+        the carrier switches them on. Calls and texts on <b style={{ color: C.text }}>{phoneNumber}</b> start working once these are approved.
       </p>
-      {reqs === null ? (
-        <p style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 20 }}>Checking requirements…</p>
-      ) : docReqs.length === 0 ? (
+
+      {loadError ? (
+        <p style={{ color: C.red, fontSize: 13, textAlign: "center", padding: 20 }}>{loadError}</p>
+      ) : !info ? (
+        <p style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 20, display: "flex", gap: 8, justifyContent: "center" }}><Loader2 size={15} className="dg-spin" /> Checking requirements…</p>
+      ) : active || info.requirements.length === 0 ? (
         <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: radius.md, padding: 16, display: "flex", alignItems: "center", gap: 10 }}>
           <ShieldCheck size={20} color={C.green} />
-          <p style={{ color: C.text, fontSize: 13.5, fontWeight: 600 }}>No documents needed for this number 🎉</p>
+          <p style={{ color: C.text, fontSize: 13.5, fontWeight: 600 }}>{active ? "This number is active — nothing else needed." : "No documents needed for this number."}</p>
+        </div>
+      ) : allSent ? (
+        <div style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.32)", borderRadius: radius.md, padding: 16, display: "flex", alignItems: "center", gap: 10 }}>
+          <ShieldCheck size={20} color={C.amber} />
+          <p style={{ color: C.text, fontSize: 13.5, fontWeight: 600, lineHeight: 1.5 }}>Everything is submitted and under review by the carrier. This usually takes 1–3 business days.</p>
         </div>
       ) : (
         <>
-          {docReqs.map((r) => (
-            <div key={r.id} style={{ background: C.card, border: `1px solid ${files[r.id] ? "rgba(34,197,94,0.4)" : C.line}`, borderRadius: radius.md, padding: 14, marginBottom: 12 }}>
-              <p style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>{r.name}</p>
-              <p style={{ color: C.muted, fontSize: 12, marginTop: 3, lineHeight: 1.45 }}>{r.description}</p>
-              <input ref={(el) => { inputs.current[r.id] = el; }} type="file" accept="image/*,application/pdf" style={{ display: "none" }}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) setFiles((p) => ({ ...p, [r.id]: f })); }} />
-              <button onClick={() => inputs.current[r.id]?.click()} style={{
-                marginTop: 11, width: "100%", padding: "11px", borderRadius: radius.md,
-                background: files[r.id] ? "rgba(34,197,94,0.12)" : C.input, border: `1px solid ${files[r.id] ? "rgba(34,197,94,0.4)" : C.line}`,
-                color: files[r.id] ? C.green : C.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font.sans,
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              }}>
-                {files[r.id] ? <><Check size={15} /> {files[r.id].name}</> : <><FileUp size={15} /> Upload file</>}
-              </button>
-            </div>
-          ))}
-          <SubmitBtn busy={busy} label="Submit documents" onClick={submit} disabled={!allUploaded} />
+          {open.map((q) => {
+            if (q.type === "textual") return (
+              <div key={q.id} style={card(!!texts[q.id]?.trim())}>
+                {hint(q)}
+                <textarea value={texts[q.id] ?? ""} onChange={(e) => setTexts((p) => ({ ...p, [q.id]: e.target.value }))}
+                  placeholder={q.example ? `e.g. ${q.example.slice(0, 160)}` : ""} rows={3}
+                  style={{ ...inputStyle, marginTop: 10, resize: "vertical", lineHeight: 1.5 }} />
+              </div>
+            );
+            if (q.type === "document") return (
+              <div key={q.id} style={card(!!files[q.id])}>
+                {hint(q)}
+                <input ref={(el) => { inputs.current[q.id] = el; }} type="file" accept="image/*,application/pdf" style={{ display: "none" }}
+                  onChange={(e) => pickFile(q.id, e.target.files?.[0])} />
+                <button onClick={() => inputs.current[q.id]?.click()} style={{
+                  marginTop: 11, width: "100%", padding: "11px", borderRadius: radius.md,
+                  background: files[q.id] ? "rgba(34,197,94,0.12)" : C.input, border: `1px solid ${files[q.id] ? "rgba(34,197,94,0.4)" : C.line}`,
+                  color: files[q.id] ? C.green : C.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font.sans,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}>
+                  {files[q.id] ? <><Check size={15} /> {files[q.id].name}</> : <><FileUp size={15} /> Upload PDF or photo (max {MAX_FILE_MB} MB)</>}
+                </button>
+              </div>
+            );
+            if (q.type === "address") return (
+              <div key={q.id} style={card(addrOk)}>
+                {hint(q)}
+                <div style={{ marginTop: 12 }}>
+                  <Row desktop={desktop}>
+                    <Text label="First name" value={addr.firstName} onChange={setA("firstName")} />
+                    <Text label="Last name" value={addr.lastName} onChange={setA("lastName")} />
+                  </Row>
+                  <Text label="Business name (or leave blank)" value={addr.businessName} onChange={setA("businessName")} />
+                  <Text label="Street address" value={addr.street} onChange={setA("street")} placeholder="60 Holborn Viaduct" />
+                  <Text label="Apartment / suite (optional)" value={addr.street2} onChange={setA("street2")} />
+                  <Row desktop={desktop}>
+                    <Text label="City" value={addr.city} onChange={setA("city")} placeholder="London" />
+                    <Text label="State / region" value={addr.region} onChange={setA("region")} />
+                  </Row>
+                  <Row desktop={desktop}>
+                    <Text label="Postal code" value={addr.postalCode} onChange={setA("postalCode")} placeholder="EC1A 2FD" />
+                    <Select label="Country" value={addr.country} onChange={setA("country")} options={ADDRESS_COUNTRIES} />
+                  </Row>
+                </div>
+              </div>
+            );
+            return (
+              <div key={q.id} style={card(false)}>
+                {hint(q)}
+                <p style={{ color: C.amber, fontSize: 12, marginTop: 8, fontWeight: 600 }}>This step can't be completed in the app yet — please contact support.</p>
+              </div>
+            );
+          })}
+          <SubmitBtn busy={busy} label="Submit for approval" onClick={submit} disabled={!ready} />
         </>
       )}
     </Sheet>

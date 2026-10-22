@@ -119,6 +119,16 @@ export interface BuyResult {
 export const apiBuyNumber = (phoneNumber: string, kind: NumberKind, price?: number) =>
   req<BuyResult>("/api/numbers/buy", { method: "POST", body: JSON.stringify({ phoneNumber, kind, price }) });
 
+export interface ApiRequirement { id: string; type: "textual" | "document" | "address" | string; name: string; description: string; example: string; submitted: boolean; rejected?: boolean; status?: string | null; }
+export interface ApiRequirements { status: string | null; country?: string; orderStatus?: string; requirementsMet: boolean; requirements: ApiRequirement[]; }
+export interface ApiAddressInput { firstName: string; lastName: string; businessName: string; street: string; street2: string; city: string; region: string; postalCode: string; country: string; }
+export type ApiRequirementValue = string | { file: { name: string; type: string; data: string } } | { address: ApiAddressInput };
+
+export const apiGetRequirements = (e164: string) =>
+  req<ApiRequirements>(`/api/numbers/requirements?e164=${encodeURIComponent(e164)}`);
+export const apiSubmitRequirements = (e164: string, values: Record<string, ApiRequirementValue>) =>
+  req<ApiRequirements & { ok: boolean }>("/api/numbers/requirements", { method: "POST", body: JSON.stringify({ e164, values }) });
+
 /** Release (give up) a number — frees it on Telnyx and stops its monthly rental. */
 export const apiReleaseNumber = (phoneNumber: string) =>
   req<{ ok: boolean; numbers?: ApiOwnedNumber[]; capacity?: ApiCapacity }>("/api/numbers/release", { method: "POST", body: JSON.stringify({ phoneNumber }) });

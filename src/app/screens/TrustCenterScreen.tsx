@@ -55,7 +55,7 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
       <div style={{ padding: "8px 20px 0" }}>
         <h1 style={{ color: C.text, fontSize: 22, fontWeight: 800, lineHeight: 1.25 }}>Register your numbers</h1>
         <p style={{ color: C.muted, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-          Carriers require all VoIP numbers to complete 10DLC registration (brand + campaign via Telnyx) before sending text messages to US and Canadian numbers.
+          US and Canadian numbers need 10DLC registration (brand + campaign) before sending texts. Numbers in other countries (e.g. UK) instead need the owner's ID and address before they switch on.
         </p>
       </div>
 
@@ -92,7 +92,7 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ color: C.text, fontSize: 14, fontWeight: 700, fontFamily: font.mono }}>{n.number}</p>
                     <p style={{ color: n.verification === "pending" ? C.amber : C.red, fontSize: 12, marginTop: 2, fontWeight: 600 }}>
-                      {n.verification === "pending" ? "Verification pending" : "Local numbers registration"}
+                      {!isNanp(n) ? "ID & address needed to activate calls and SMS" : n.verification === "pending" ? "Verification pending" : "Local numbers registration"}
                     </p>
                   </div>
                 </div>
@@ -100,7 +100,7 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
                   width: "100%", padding: "13px", borderRadius: radius.md, background: gradients.brand,
                   border: "none", color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: font.sans,
                   marginBottom: 8,
-                }}>Register now</button>
+                }}>{isNanp(n) ? "Register now" : "Submit documents"}</button>
                 <button onClick={() => showToast("Opening registration guide…")} style={{
                   width: "100%", padding: "12px", borderRadius: radius.md, background: C.input,
                   border: `1px solid ${C.line}`, color: C.text, fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: font.sans,
