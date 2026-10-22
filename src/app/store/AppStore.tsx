@@ -950,6 +950,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pushActivity({ kind: "number", title: "Number added", body: wasFree ? `${n.number} added free with your plan.${trustNote2}` : `${n.number} added for $${price.toFixed(2)}/mo.${trustNote2}`, time: "just now" });
       // Refresh the plan so the number-capacity meter reflects the new number.
       refreshSubscription();
+      // Pull the carrier's view (line type, regulatory status) for the new number.
+      apiGetNumbers().then(({ numbers: owned }) => {
+        const prevById = new Map([...state.numbers, { ...n, id: tid }].map((x) => [x.id, x]));
+        dispatch({ t: "SET_NUMBERS", numbers: owned.map((o) => ownedToAppNumber(o, prevById.get(o.telnyxId || o.id))) });
+      }).catch(() => {});
       return true;
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Couldn't add number", "error");
@@ -957,7 +962,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try { const w = await apiWallet(); dispatch({ t: "SET_WALLET", balance: w.balance, txns: toAppTxns(w) }); } catch { /* ignore */ }
       return false;
     }
-  }, [state.wallet.balance, pushActivity, showToast, refreshSubscription]);
+  }, [state.wallet.balance, state.numbers, pushActivity, showToast, refreshSubscription]);
 
   // Release (give up) a number — frees it on Telnyx and stops its monthly rental.
   const releaseNumber: Store["releaseNumber"] = useCallback(async (id) => {

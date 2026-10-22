@@ -893,20 +893,25 @@ async function voiceRemaining(uid) {
 // Non-US numbers can sit in "requirement-info-pending" until regulatory documents are approved.
 const numberStatusCache = new Map();
 async function telnyxNumberStatus(e164) {
+  return (await telnyxNumberInfo(e164)).status;
+}
+/** { status, type } of a number on Telnyx — type is local / mobile / national / toll_free. */
+async function telnyxNumberInfo(e164) {
   const hit = numberStatusCache.get(e164);
-  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.status;
+  if (hit && Date.now() - hit.at < 5 * 60_000) return hit;
   try {
     const r = await telnyxFetch(`/phone_numbers?filter[phone_number]=${encodeURIComponent(e164)}`);
     const pn = (await r.json())?.data?.[0];
     const status = pn?.status || null;
-    numberStatusCache.set(e164, { status, at: Date.now() });
+    const info = { status, type: pn?.phone_number_type || null, at: Date.now() };
+    numberStatusCache.set(e164, info);
     // Numbers ordered while regulatory-pending come out without a messaging profile.
     const mp = process.env.VITE_TELNYX_MESSAGING_PROFILE_ID;
     if (pn && status === "active" && !pn.messaging_profile_id && mp) {
       telnyxFetch(`/phone_numbers/${pn.id}/messaging`, { method: "PATCH", body: JSON.stringify({ messaging_profile_id: mp }) }).catch(() => {});
     }
-    return status;
-  } catch { return hit?.status ?? null; }
+    return info;
+  } catch { return hit ?? { status: null, type: null }; }
 }
 
 // Per-field values/statuses live on the order's phone_numbers entry, not on the sub-order.
@@ -2104,8 +2109,10 @@ createServer(async (req, res) => {
     try {
       const [numbers, capacity] = await Promise.all([db.listNumbers(uid), db.numberCapacity(uid)]);
       await Promise.all((numbers || []).map(async (n) => {
-        if (n.e164?.startsWith("+1")) return;
-        n.telnyxStatus = await telnyxNumberStatus(n.e164);
+        if (n.e164?.startsWith("+1")) { n.numberType = n.kind === "tollfree" ? "toll_free" : "local"; return; }
+        const info = await telnyxNumberInfo(n.e164);
+        n.telnyxStatus = info.status;
+        n.numberType = info.type || n.kind;
       }));
       return send(res, 200, { numbers, capacity });
     } catch (e) {

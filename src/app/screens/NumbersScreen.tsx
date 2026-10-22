@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from "react";
 import { Search, Plus, ChevronDown, Settings2, MessageSquare, ShieldCheck, Clock } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
-import type { PhoneNumber, VerificationStatus } from "../core/types";
+import { numberTypeLabel, type PhoneNumber, type VerificationStatus } from "../core/types";
 
 interface Props {
   onBuyNumber: () => void;
@@ -104,7 +104,7 @@ function NumberCard({ n, onSettings, onInbox }: { n: PhoneNumber; onSettings: ()
         <div style={{ width: 46, height: 46, borderRadius: 14, background: C.input, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 23 }}>{n.flag}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ color: C.text, fontSize: 14, fontWeight: 700, fontFamily: font.mono, letterSpacing: 0.4 }}>{n.number}</p>
-          <p style={{ color: C.muted, fontSize: 12, marginTop: 3 }}>{n.settings.label} · {n.country}</p>
+          <p style={{ color: C.muted, fontSize: 12, marginTop: 3 }}>{n.settings.label} · {n.country}{n.numberType ? ` · ${numberTypeLabel(n.numberType)}` : ""}</p>
         </div>
         {/* verification badge */}
         <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, background: v.bg }}>

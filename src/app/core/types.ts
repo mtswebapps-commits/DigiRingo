@@ -23,6 +23,8 @@ export interface PhoneNumber {
   /** Carrier regulatory state for non-US numbers (Telnyx phone_number status,
    *  e.g. requirement-info-pending / -under-review / -exception / active). */
   regStatus?: string;
+  /** Line type from the carrier: local / mobile / national / toll_free. */
+  numberType?: string;
   /** Per-number settings (Quo-style "number action" screen). */
   settings: NumberSettings;
 }
@@ -222,4 +224,11 @@ export interface AppState {
   blocked: string[];
   /** Currently selected inbox/number id for the number-wise inbox view. */
   activeNumberId: string | null;
+}
+
+/** Display label for a carrier line type ("mobile" → "Mobile", "toll_free" → "Toll-free"). */
+export function numberTypeLabel(t?: string): string {
+  if (!t) return "";
+  if (t === "toll_free" || t === "tollfree") return "Toll-free";
+  return t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, " ");
 }

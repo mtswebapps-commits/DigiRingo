@@ -81,18 +81,21 @@ const DIAL_ISO: Array<[string, string]> = [
  * conversation/call matching (keyed by phone_number_id) still lines up.
  */
 export function ownedToAppNumber(
-  n: { id: string; e164: string; kind: string; telnyxId: string; free: boolean; telnyxStatus?: string | null },
+  n: { id: string; e164: string; kind: string; telnyxId: string; free: boolean; telnyxStatus?: string | null; numberType?: string | null },
   prev?: PhoneNumber,
 ): PhoneNumber {
   const d = digits(n.e164);
   const iso = DIAL_ISO.find(([code]) => d.startsWith(code))?.[1] ?? "US";
   const c = COUNTRY[iso] ?? fallback;
+  // Outside the US/Canada, geographic (local/national) lines are voice-only.
+  const voiceOnly = !d.startsWith("1") && (n.numberType === "local" || n.numberType === "national");
   return {
     id: n.telnyxId || n.id,
     flag: prev?.flag ?? c.flag,
     number: prev?.number ?? formatE164(n.e164),
     country: prev?.country ?? c.name,
-    sms: prev?.sms ?? true,
+    sms: n.numberType ? !voiceOnly : prev?.sms ?? true,
+    numberType: n.numberType ?? prev?.numberType,
     voice: prev?.voice ?? true,
     price: prev?.price ?? 0,
     verification: iso === "US"

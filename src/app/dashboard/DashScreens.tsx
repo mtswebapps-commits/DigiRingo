@@ -9,6 +9,7 @@ import { useApp } from "../store/AppStore";
 import { USAGE_RATES, NUMBER_RENTAL } from "../core/plans";
 import { liveUsageRates, liveNumberRental } from "../core/rates";
 import type { Section } from "../DashboardShell";
+import { numberTypeLabel } from "../core/types";
 
 /* ============================================================ shared UI ==== */
 
@@ -169,13 +170,14 @@ export function DashNumbers({ onBuyNumber, onOpenSettings, onOpenInbox }: { onBu
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Number</th><th style={th}>Label</th><th style={th}>Country</th><th style={th}>Capabilities</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Actions</th></tr></thead>
+            <thead><tr><th style={th}>Number</th><th style={th}>Label</th><th style={th}>Country</th><th style={th}>Type</th><th style={th}>Capabilities</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Actions</th></tr></thead>
             <tbody>
               {nums.map((n) => (
                 <tr key={n.id}>
                   <td style={td}><span style={{ display: "flex", alignItems: "center", gap: 9 }}><span style={{ fontSize: 18 }}>{n.flag}</span><span style={{ fontFamily: font.mono, fontWeight: 600, letterSpacing: 0.3 }}>{n.number}</span></span></td>
                   <td style={{ ...td, color: C.muted }}><span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>{n.settings.icon} {n.settings.label}</span></td>
                   <td style={{ ...td, color: C.muted }}>{n.country}</td>
+                  <td style={{ ...td, color: C.text, fontWeight: 600 }}>{numberTypeLabel(n.numberType) || "—"}</td>
                   <td style={td}><span style={{ display: "flex", gap: 5 }}>{n.voice && <Cap label="Voice" />}{n.sms && <Cap label="SMS" />}</span></td>
                   <td style={td}><VPill v={n.verification} /></td>
                   <td style={{ ...td, textAlign: "right" }}>
