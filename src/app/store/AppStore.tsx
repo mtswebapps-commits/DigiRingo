@@ -78,6 +78,22 @@ const toE164 = (display: string) => {
   return d.startsWith("+") ? d : `+${d}`;
 };
 
+/** Dialed input → E.164. Numbers typed without a country code take the caller-ID's country. */
+const dialToE164 = (input: string, callerE164: string | null) => {
+  const raw = input.replace(/[^\d+]/g, "");
+  if (raw.startsWith("+")) return raw;
+  if (raw.startsWith("00")) return `+${raw.slice(2)}`;
+  const nanp = !callerE164 || callerE164.startsWith("+1");
+  if (nanp) {
+    if (raw.length === 10) return `+1${raw}`;
+    if (raw.length === 11 && raw.startsWith("1")) return `+${raw}`;
+    return `+${raw}`;
+  }
+  const cc = ["44", "49", "33", "81", "61", "55"].find((c) => callerE164.startsWith(`+${c}`));
+  if (cc && raw.startsWith("0")) return `+${cc}${raw.slice(1)}`;
+  return `+${raw}`;
+};
+
 /** Map a persisted server call-log row onto the app's CallLog shape. */
 const apiCallToApp = (c: ApiCallLog, numbers: PhoneNumber[]): CallLog => {
   const via = numbers.find((n) => toE164(n.number) === c.via) ?? numbers[0];
@@ -893,7 +909,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const placeCall: Store["placeCall"] = useCallback((contact) => {
     const num = state.numbers.find((n) => n.id === state.activeNumberId) ?? state.numbers[0];
-    voiceStart(toE164(contact), num ? toE164(num.number) : null);
+    voiceStart(dialToE164(contact, num ? toE164(num.number) : null), num ? toE164(num.number) : null);
     showToast(`Calling ${contact}…`);
   }, [state.numbers, state.activeNumberId, showToast]);
 
@@ -918,7 +934,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const buyNumber: Store["buyNumber"] = useCallback(async (n, opts = {}) => {
     const kind: NumberKind = opts.kind ?? "local";
     const free = !!opts.free;
-    const price = free ? 0 : NUMBER_RENTAL[kind];
+    const price = free ? 0 : (n.price > 0 ? n.price : NUMBER_RENTAL[kind]);
     // Paid extras draw from the wallet, so they need funds up front; free ones don't.
     if (!free && state.wallet.balance < price) {
       showToast(`Top up your wallet — $${price.toFixed(2)} needed`, "error");

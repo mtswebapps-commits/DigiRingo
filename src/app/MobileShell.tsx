@@ -58,7 +58,7 @@ export function buildNumber(n: { number: string; price: number; sms: boolean; vo
   const { flag, country } = FLAGS[key];
   return {
     id: `n${Date.now()}`, flag, number: n.number, country,
-    sms: n.sms, voice: n.voice, price: NUMBER_RENTAL.local, verification: country === "United States" ? "unverified" : "verified",
+    sms: n.sms, voice: n.voice, price: n.price > 0 ? n.price : NUMBER_RENTAL.local, verification: country === "United States" ? "unverified" : "verified",
     settings: { label: "New Number", icon: "📱", businessHours: false, autoRecord: false, transcripts: false, forwardAll: false, muted: false, showInRecent: true, ringtone: "Default" },
   };
 }
@@ -87,7 +87,7 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
 
   const handleBuyNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }) =>
     buyNumber(buildNumber(n), { kind: "local" }).then((ok) => {
-      if (ok) showToast(`${n.number} added for $${NUMBER_RENTAL.local.toFixed(2)}/mo`);
+      if (ok) showToast(`${n.number} added for $${(n.price > 0 ? n.price : NUMBER_RENTAL.local).toFixed(2)}/mo`);
     });
 
   const openInboxFor = (id: string) => { selectNumber(id); setActiveTab("inbox"); };

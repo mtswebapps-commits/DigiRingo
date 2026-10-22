@@ -81,7 +81,7 @@ const DIAL_ISO: Array<[string, string]> = [
  * conversation/call matching (keyed by phone_number_id) still lines up.
  */
 export function ownedToAppNumber(
-  n: { id: string; e164: string; kind: string; telnyxId: string; free: boolean },
+  n: { id: string; e164: string; kind: string; telnyxId: string; free: boolean; telnyxStatus?: string | null },
   prev?: PhoneNumber,
 ): PhoneNumber {
   const d = digits(n.e164);
@@ -95,7 +95,9 @@ export function ownedToAppNumber(
     sms: prev?.sms ?? true,
     voice: prev?.voice ?? true,
     price: prev?.price ?? 0,
-    verification: prev?.verification ?? (iso === "US" ? "unverified" : "verified"),
+    verification: iso === "US"
+      ? prev?.verification ?? "unverified"
+      : n.telnyxStatus && n.telnyxStatus !== "active" ? "pending" : "verified",
     settings: prev?.settings ?? defaultSettings(n.kind === "tollfree" ? "Toll-free" : "New Number"),
   };
 }

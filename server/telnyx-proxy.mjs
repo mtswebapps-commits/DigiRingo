@@ -890,6 +890,19 @@ async function voiceRemaining(uid) {
   return { remainingSec, allowed: remainingSec > 0 };
 }
 
+// Non-US numbers can sit in "requirement-info-pending" until regulatory documents are approved.
+const numberStatusCache = new Map();
+async function telnyxNumberStatus(e164) {
+  const hit = numberStatusCache.get(e164);
+  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.status;
+  try {
+    const r = await telnyxFetch(`/phone_numbers?filter[phone_number]=${encodeURIComponent(e164)}`);
+    const status = (await r.json())?.data?.[0]?.status || null;
+    numberStatusCache.set(e164, { status, at: Date.now() });
+    return status;
+  } catch { return hit?.status ?? null; }
+}
+
 /** Place a Telnyx number order + record ownership + log it. Throws on failure.
  *  Shared by the wallet buy route and the Stripe webhook (card fulfilment). */
 async function orderTelnyxNumber(uid, phoneNumber, kind = "local", { free = false, amount = 0 } = {}) {
@@ -1974,6 +1987,10 @@ createServer(async (req, res) => {
     if (!uid) return send(res, 401, { error: "Not authenticated" });
     try {
       const [numbers, capacity] = await Promise.all([db.listNumbers(uid), db.numberCapacity(uid)]);
+      await Promise.all((numbers || []).map(async (n) => {
+        if (n.e164?.startsWith("+1")) return;
+        n.telnyxStatus = await telnyxNumberStatus(n.e164);
+      }));
       return send(res, 200, { numbers, capacity });
     } catch (e) {
       return send(res, e.status || 500, { error: e.message });
@@ -2006,11 +2023,13 @@ createServer(async (req, res) => {
       const lr = await fetch(lookupUrl, { headers: { Authorization: `Bearer ${telnyxKey()}` } });
       if (lr.ok) {
         const ld = await lr.json();
-        const mc = ld?.data?.[0]?.cost_information?.monthly_cost;
+        const hit = ld?.data?.[0];
+        // Telnyx ignores the exact-number filter for some countries and returns an unrelated number.
+        const mc = hit?.phone_number === phoneNumber ? hit?.cost_information?.monthly_cost : null;
         if (mc) { wholesaleCost = parseFloat(mc); lookedUp = true; }
       }
     } catch { /* fall back */ }
-    let amount = lookedUp ? markup(wholesaleCost, 2) : (clientPrice > 0 ? clientPrice : markup(wholesaleCost, 2));
+    const amount = lookedUp ? markup(wholesaleCost, 2) : Math.max(clientPrice, markup(wholesaleCost, 2));
     const label = `Number ${phoneNumber} (${kind})`;
 
     // 1) Pay from wallet — every number costs its rental.

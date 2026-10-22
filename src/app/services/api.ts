@@ -93,7 +93,7 @@ export interface ApiCapacity {
   hasPlan: boolean; tier?: string; used?: number; included?: number; max?: number;
   isFree?: boolean; atCap?: boolean; numberType?: NumberKind;
 }
-export interface ApiOwnedNumber { id: string; e164: string; kind: NumberKind; telnyxId: string; free: boolean; time: string; }
+export interface ApiOwnedNumber { id: string; e164: string; kind: NumberKind; telnyxId: string; free: boolean; time: string; telnyxStatus?: string | null; }
 
 /** List the user's owned numbers + their plan's number-capacity. */
 export const apiGetNumbers = () => req<{ numbers: ApiOwnedNumber[]; capacity: ApiCapacity }>("/api/numbers");

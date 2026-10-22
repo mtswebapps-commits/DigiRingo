@@ -80,7 +80,7 @@ export function DashboardShell() {
 
   const handleBuyNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }) =>
     buyNumber(buildNumber(n), { kind: "local" }).then((ok) => {
-      if (ok) showToast(`${n.number} added for $${NUMBER_RENTAL.local.toFixed(2)}/mo`);
+      if (ok) showToast(`${n.number} added for $${(n.price > 0 ? n.price : NUMBER_RENTAL.local).toFixed(2)}/mo`);
     });
 
   const goSettings = (route: SettingsRoute) => {
