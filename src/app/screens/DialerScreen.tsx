@@ -29,8 +29,10 @@ export function DialerScreen({ onClose, onCall }: Props) {
   const prefix = cc ? `+${cc}` : "";
   const lastPrefix = useRef("");
   useEffect(() => {
+    // Read the old prefix NOW — the setValue updater runs later, after the ref
+    // below has already been overwritten with the new prefix.
+    const old = lastPrefix.current;
     setValue((v) => {
-      const old = lastPrefix.current;
       if (!v || v === old) return prefix;
       if (old && v.startsWith(old)) return prefix + v.slice(old.length);
       return v;
