@@ -930,7 +930,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const tid = order.phone_numbers[0]?.id ?? n.id;
         dispatch({ t: "BUY_NUMBER", number: { ...n, id: tid, price } });
         if (!free) dispatch({ t: "CHARGE_WALLET", amount: price, label: `Number ${n.number}` });
-        pushActivity({ kind: "number", title: "Number added", body: free ? `${n.number} added free with your plan. Register it in Trust center to send SMS.` : `${n.number} added for $${price.toFixed(2)}/mo. Register it in Trust center to send SMS.`, time: "just now" });
+        const trustNote = n.country === "United States" ? " Register it in Trust center to send SMS." : "";
+        pushActivity({ kind: "number", title: "Number added", body: free ? `${n.number} added free with your plan.${trustNote}` : `${n.number} added for $${price.toFixed(2)}/mo.${trustNote}`, time: "just now" });
         return true;
       } catch {
         showToast("Number order failed — try again", "error");
@@ -943,7 +944,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const wasFree = res.free ?? free;
       dispatch({ t: "BUY_NUMBER", number: { ...n, id: tid, price: wasFree ? 0 : price } });
       if (res.wallet) dispatch({ t: "SET_WALLET", balance: res.wallet.balance, txns: toAppTxns(res.wallet) });
-      pushActivity({ kind: "number", title: "Number added", body: wasFree ? `${n.number} added free with your plan. Register it in Trust center to send SMS.` : `${n.number} added for $${price.toFixed(2)}/mo. Register it in Trust center to send SMS.`, time: "just now" });
+      const trustNote2 = n.country === "United States" ? " Register it in Trust center to send SMS." : "";
+      pushActivity({ kind: "number", title: "Number added", body: wasFree ? `${n.number} added free with your plan.${trustNote2}` : `${n.number} added for $${price.toFixed(2)}/mo.${trustNote2}`, time: "just now" });
       // Refresh the plan so the number-capacity meter reflects the new number.
       refreshSubscription();
       return true;

@@ -63,7 +63,7 @@ export function toAppNumber(
     sms: prev?.sms ?? extras?.sms ?? true,
     voice: prev?.voice ?? extras?.voice ?? true,
     price: prev?.price ?? extras?.price ?? NUMBER_RENTAL.local,
-    verification: prev?.verification ?? (pn.status === "active" ? "unverified" : "pending"),
+    verification: prev?.verification ?? (pn.country_iso_alpha2 === "US" ? (pn.status === "active" ? "unverified" : "pending") : "verified"),
     settings: prev?.settings ?? defaultSettings("New Number"),
   };
 }
@@ -95,7 +95,7 @@ export function ownedToAppNumber(
     sms: prev?.sms ?? true,
     voice: prev?.voice ?? true,
     price: prev?.price ?? 0,
-    verification: prev?.verification ?? "unverified",
+    verification: prev?.verification ?? (iso === "US" ? "unverified" : "verified"),
     settings: prev?.settings ?? defaultSettings(n.kind === "tollfree" ? "Toll-free" : "New Number"),
   };
 }

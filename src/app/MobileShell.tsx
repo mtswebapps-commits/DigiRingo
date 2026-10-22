@@ -58,7 +58,7 @@ export function buildNumber(n: { number: string; price: number; sms: boolean; vo
   const { flag, country } = FLAGS[key];
   return {
     id: `n${Date.now()}`, flag, number: n.number, country,
-    sms: n.sms, voice: n.voice, price: NUMBER_RENTAL.local, verification: "unverified",
+    sms: n.sms, voice: n.voice, price: NUMBER_RENTAL.local, verification: country === "United States" ? "unverified" : "verified",
     settings: { label: "New Number", icon: "📱", businessHours: false, autoRecord: false, transcripts: false, forwardAll: false, muted: false, showInRecent: true, ringtone: "Default" },
   };
 }

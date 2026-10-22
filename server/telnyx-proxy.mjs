@@ -906,9 +906,11 @@ async function orderTelnyxNumber(uid, phoneNumber, kind = "local", { free = fals
   if (!r.ok) throw new Error(j?.errors?.[0]?.detail || "Number order failed");
   const telnyxId = j?.data?.phone_numbers?.[0]?.id || "";
   await db.provisionNumber(uid, { e164: phoneNumber, kind, telnyxId, free });
+  const isUS = phoneNumber.startsWith("+1");
+  const trustNote = isUS ? " Register it in Trust center to send SMS." : "";
   await db.logActivity(uid, { kind: "number", title: "Number added", body: free
-    ? `${phoneNumber} added with your plan. Register it in Trust center to send SMS.`
-    : `${phoneNumber} added for $${Number(amount).toFixed(2)}/mo. Register it in Trust center to send SMS.` });
+    ? `${phoneNumber} added with your plan.${trustNote}`
+    : `${phoneNumber} added for $${Number(amount).toFixed(2)}/mo.${trustNote}` });
   return j.data;
 }
 
