@@ -28,6 +28,7 @@ import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHmac, timingSafeEqual, createPublicKey, verify as edVerify } from "node:crypto";
 import { numberPrice, bundleCharge, bundleFor, BUNDLES, MARKUP_PCT, OVERFLOW_RATES } from "./plans.mjs";
+const markup = (cost, decimals = 3) => Math.round(cost * (1 + MARKUP_PCT / 100) * 10 ** decimals) / 10 ** decimals;
 import { sendPush, vapidPublicKey, webPushConfigured } from "./webpush.mjs";
 import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify, publishableKey as stripePubKey, stripeConfigured, createCustomer as stripeCreateCustomer, createSetupSession as stripeSetupSession, cardFromIntent as stripeCardFromIntent } from "./stripe.mjs";
 import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
