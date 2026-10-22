@@ -914,7 +914,9 @@ async function findSubNumberOrder(e164) {
   const r = await telnyxFetch(`/number_orders?filter[phone_numbers.phone_number]=${encodeURIComponent(e164)}`);
   const orders = (await r.json())?.data || [];
   orders.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  const order = orders[0];
+  if (!orders[0]?.id) return null;
+  const full = await telnyxFetch(`/number_orders/${orders[0].id}`);
+  const order = (await full.json())?.data || orders[0];
   const subId = order?.sub_number_orders_ids?.[0];
   if (!subId) return null;
   const pn = (order.phone_numbers || []).find((p) => p.phone_number === e164) || {};
