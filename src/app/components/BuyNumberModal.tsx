@@ -214,7 +214,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
 
             {/* Available numbers */}
             <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 10, letterSpacing: 0.8, textTransform: "uppercase" }}>Available Numbers</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8, minHeight: 80 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8, minHeight: 80, maxHeight: 280, overflowY: "auto" }}>
               {loading ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "26px 0", color: C.muted, fontSize: 13 }}>
                   <Loader2 size={18} style={{ animation: "spin 0.8s linear infinite" }} /> Searching for numbers…
@@ -262,17 +262,19 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
             </div>
 
             {selected && (
-              <button
-                onClick={() => setStep("pay")}
-                style={{
-                  width: "100%", padding: "13px", border: "none", borderRadius: 13,
-                  background: `linear-gradient(135deg,${C.blue},${C.purple})`, color: "#fff",
-                  fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "'Inter',sans-serif",
-                  boxShadow: "0 6px 20px rgba(124,92,255,0.4)",
-                }}
-              >
-                Continue · ${numPrice.toFixed(2)}/mo →
-              </button>
+              <div style={{ position: "sticky", bottom: 0, paddingTop: 12, background: C.card }}>
+                <button
+                  onClick={() => setStep("pay")}
+                  style={{
+                    width: "100%", padding: "13px", border: "none", borderRadius: 13,
+                    background: `linear-gradient(135deg,${C.blue},${C.purple})`, color: "#fff",
+                    fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "'Inter',sans-serif",
+                    boxShadow: "0 6px 20px rgba(124,92,255,0.4)",
+                  }}
+                >
+                  Continue · ${numPrice.toFixed(2)}/mo →
+                </button>
+              </div>
             )}
           </div>
         ) : (
