@@ -149,6 +149,14 @@ export interface BrandInfo {
   displayName: string;
   status: "PENDING" | "VERIFIED" | "UNVERIFIED" | "FAILED";
   campaignId?: string;
+  entityType?: string;
+  /** Sole proprietor: waiting for the code texted to their mobile. */
+  otpRequired?: boolean;
+  /** Carrier-registry feedback when the brand wasn't verified. */
+  reasons?: string[];
+  campaign?: { id: string; usecase: string; status: "PENDING" | "ACTIVE" | "REJECTED"; reasons: string[] } | null;
+  /** Wallet charge for registering a brand (0 when the platform absorbs it). */
+  brandFee?: number;
 }
 
 /** Business details collected for 10DLC brand registration — the A2P "KYC".
@@ -173,6 +181,10 @@ export interface BrandRegistration {
   country: string;           // ISO-2 business country (US/CA for 10DLC)
   stockSymbol: string;       // required only when entityType = PUBLIC_PROFIT
   stockExchange: string;     // required only when entityType = PUBLIC_PROFIT
+  // Sole proprietors register as a person: name + a US/CA mobile for the OTP.
+  firstName?: string;
+  lastName?: string;
+  mobilePhone?: string;
 }
 
 /** Campaign details for 10DLC (use case + consent + sample messages). Field

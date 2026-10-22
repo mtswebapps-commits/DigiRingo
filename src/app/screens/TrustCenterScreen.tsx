@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { ArrowLeft, ShieldCheck, Info } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
@@ -25,12 +25,24 @@ type Form =
  * Everything happens in-app (no Telnyx popup); the store submits to Telnyx.
  */
 export function TrustCenterScreen({ onBack, desktop = false }: Props) {
-  const { state, registerNumber, showToast } = useApp();
+  const { state, registerNumber, showToast, refreshTenDlc, brandOtp } = useApp();
   const [form, setForm] = useState<Form | null>(null);
   const pending = state.numbers.filter((n) => n.verification !== "verified");
   const verified = state.numbers.filter((n) => n.verification === "verified");
   const brand = state.brand;
   const brandOk = brand?.status === "VERIFIED";
+  const brandBad = brand?.status === "FAILED" || brand?.status === "UNVERIFIED";
+  const campaign = brand?.campaign ?? null;
+  const [otp, setOtp] = useState("");
+  const [otpBusy, setOtpBusy] = useState(false);
+  const brandLine = !brand ? "Register your business brand to start"
+    : brandOk ? "Verified ✓"
+    : brand.otpRequired ? "Enter the code texted to your mobile to confirm it's you"
+    : brandBad ? "Not verified — the details didn't match official records"
+    : "Being checked by the carrier registry · usually minutes to a few days";
+
+  // Pull the latest carrier-registry state each time the Trust Center opens.
+  useEffect(() => { refreshTenDlc(); }, [refreshTenDlc]);
 
   // Latest regulatory status seen in the docs form (fresher than state.numbers,
   // which only reloads on refresh) — keyed by number id.
@@ -38,8 +50,21 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
 
   const isNanp = (n: PhoneNumber) => n.number.replace(/\D/g, "").startsWith("1");
 
+  type RowView = { text: string; color: string; button: string; primary: boolean; disabled?: boolean };
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Status line + button for a US/CA number, from its 10DLC state.
+  const usView = (n: PhoneNumber): RowView => {
+    // Toll-free texting uses a separate carrier verification, not 10DLC.
+    if (n.numberType === "toll_free") return { text: "Toll-free texting needs a separate verification · calls work", color: C.muted, button: "Contact support to enable texting", primary: false, disabled: true };
+    if (campaign?.status === "REJECTED") return { text: "SMS campaign rejected — texting unavailable (calls work)", color: C.red, button: "Contact support to appeal", primary: false, disabled: true };
+    if (n.verification === "pending") return { text: "Registered — waiting for carrier approval · 1–7 business days", color: C.amber, button: "Submitted", primary: false, disabled: true };
+    if (!brandOk) return { text: "Finish Step 1 (brand) first · calls already work", color: C.muted, button: "Register now", primary: true };
+    return { text: "Not registered for texting · calls already work", color: C.red, button: campaign ? "Register now — free" : "Register now", primary: true };
+  };
+
   // Status line + button for a non-US number, from its carrier regulatory state.
-  const regView = (n: PhoneNumber): { text: string; color: string; button: string; primary: boolean } => {
+  const regView = (n: PhoneNumber): RowView => {
     const s = regSeen[n.id] ?? n.regStatus;
     if (s === "requirement-info-under-review") return { text: "Documents under review by the carrier · usually 1–3 business days", color: C.amber, button: "View submission", primary: false };
     if (s === "requirement-info-exception") return { text: "Some documents were rejected — fix and resubmit", color: C.red, button: "Fix & resubmit", primary: true };
@@ -50,7 +75,7 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
   const onRegister = (n: PhoneNumber) => {
     if (isNanp(n)) {
       if (!brandOk) { showToast("Register your business brand first", "error"); return; }
-      if (brand?.campaignId) registerNumber(n.id);            // campaign exists → just attach
+      if (brand?.campaignId) { setBusyId(n.id); registerNumber(n.id).finally(() => setBusyId(null)); } // campaign exists → just attach
       else setForm({ kind: "campaign", numberId: n.id });     // first number → campaign form
     } else {
       setForm({ kind: "docs", numberId: n.id, phoneNumber: n.number });
@@ -75,13 +100,40 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
       {/* Step 1 — account 10DLC brand */}
       <div style={{ padding: "18px 20px 0" }}>
         <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 }}>Step 1 · 10DLC Brand</p>
-        <div style={{ background: C.card, border: `1px solid ${brandOk ? "rgba(34,197,94,0.3)" : C.line}`, borderRadius: radius.lg, padding: 16, display: "flex", alignItems: "center", gap: 12 }}>
-          <ShieldCheck size={22} color={brandOk ? C.green : C.amber} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>{brand ? brand.displayName : "Brand not registered"}</p>
-            <p style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>{brand ? `Status: ${brand.status}` : "Register your business brand to start"}</p>
+        <div style={{ background: C.card, border: `1px solid ${brandOk ? "rgba(34,197,94,0.3)" : brandBad ? "rgba(239,68,68,0.35)" : C.line}`, borderRadius: radius.lg, padding: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <ShieldCheck size={22} color={brandOk ? C.green : brandBad ? C.red : C.amber} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>{brand ? brand.displayName : "Brand not registered"}</p>
+              <p style={{ color: brandOk ? C.green : brandBad ? C.red : C.muted, fontSize: 12, marginTop: 2, fontWeight: brand ? 600 : 400 }}>{brandLine}</p>
+            </div>
+            {(!brand || brandBad) && <button onClick={() => setForm({ kind: "brand" })} style={{ padding: "9px 14px", borderRadius: 11, background: gradients.brand, border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>{brand ? "Fix details" : "Register brand"}</button>}
           </div>
-          {!brandOk && <button onClick={() => setForm({ kind: "brand" })} style={{ padding: "9px 14px", borderRadius: 11, background: gradients.brand, border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{brand ? "Continue" : "Register brand"}</button>}
+          {brandBad && !!brand?.reasons?.length && (
+            <ul style={{ margin: "10px 0 0 34px", padding: 0, color: C.muted, fontSize: 12, lineHeight: 1.5 }}>
+              {brand.reasons.map((r) => <li key={r}>{r}</li>)}
+            </ul>
+          )}
+          {brand?.otpRequired && (
+            <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="6-digit code" inputMode="numeric"
+                style={{ flex: "1 1 120px", minWidth: 0, padding: "10px 12px", background: C.input, border: `1px solid ${C.line}`, borderRadius: radius.md, color: C.text, fontSize: 14, fontFamily: font.mono, outline: "none" }} />
+              <button disabled={otpBusy || otp.length < 4} onClick={async () => { setOtpBusy(true); const r = await brandOtp(otp); setOtpBusy(false); if (r.ok) setOtp(""); }}
+                style={{ padding: "10px 14px", borderRadius: 11, background: gradients.brand, border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", opacity: otpBusy || otp.length < 4 ? 0.6 : 1 }}>Confirm</button>
+              <button disabled={otpBusy} onClick={async () => { setOtpBusy(true); await brandOtp(); setOtpBusy(false); }}
+                style={{ padding: "10px 12px", borderRadius: 11, background: C.input, border: `1px solid ${C.line}`, color: C.text, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Resend code</button>
+            </div>
+          )}
+          {campaign && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.lineSoft}` }}>
+              <p style={{ color: campaign.status === "ACTIVE" ? C.green : campaign.status === "REJECTED" ? C.red : C.amber, fontSize: 12, fontWeight: 600 }}>
+                {campaign.status === "ACTIVE" ? "SMS campaign approved by carriers ✓"
+                  : campaign.status === "REJECTED" ? "SMS campaign was rejected by carriers — contact support to appeal"
+                  : "SMS campaign under carrier review · usually 1–7 business days"}
+              </p>
+              {campaign.status === "REJECTED" && campaign.reasons.map((r) => <p key={r} style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>• {r}</p>)}
+            </div>
+          )}
         </div>
       </div>
 
@@ -98,24 +150,24 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {pending.map((n) => { const rv = isNanp(n) ? null : regView(n); return (
+            {pending.map((n) => { const rv = isNanp(n) ? usView(n) : regView(n); return (
               <div key={n.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: radius.lg, padding: 16 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
                   <div style={{ width: 42, height: 42, borderRadius: 12, background: C.input, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 21 }}>{n.flag}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ color: C.text, fontSize: 14, fontWeight: 700, fontFamily: font.mono }}>{n.number}</p>
-                    <p style={{ color: rv ? rv.color : n.verification === "pending" ? C.amber : C.red, fontSize: 12, marginTop: 2, fontWeight: 600 }}>
-                      {rv ? rv.text : n.verification === "pending" ? "Verification pending" : "Local numbers registration"}
+                    <p style={{ color: rv.color, fontSize: 12, marginTop: 2, fontWeight: 600 }}>
+                      {rv.text}
                     </p>
                   </div>
                 </div>
-                <button onClick={() => onRegister(n)} style={{
+                <button onClick={() => !rv.disabled && onRegister(n)} disabled={rv.disabled || busyId === n.id} style={{
                   width: "100%", padding: "13px", borderRadius: radius.md,
-                  background: !rv || rv.primary ? gradients.brand : C.input,
-                  border: !rv || rv.primary ? "none" : `1px solid ${C.line}`,
-                  color: !rv || rv.primary ? "#fff" : C.text, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: font.sans,
-                  marginBottom: 8,
-                }}>{rv ? rv.button : "Register now"}</button>
+                  background: rv.primary ? gradients.brand : C.input,
+                  border: rv.primary ? "none" : `1px solid ${C.line}`,
+                  color: rv.primary ? "#fff" : C.text, fontSize: 14, fontWeight: 800, cursor: rv.disabled ? "default" : "pointer", fontFamily: font.sans,
+                  marginBottom: 8, opacity: busyId === n.id ? 0.7 : 1,
+                }}>{busyId === n.id ? "Registering…" : rv.button}</button>
                 <button onClick={() => setForm({ kind: "guide", region: isNanp(n) ? "us" : "intl" })} style={{
                   width: "100%", padding: "12px", borderRadius: radius.md, background: C.input,
                   border: `1px solid ${C.line}`, color: C.text, fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: font.sans,

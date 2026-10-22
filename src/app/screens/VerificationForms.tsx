@@ -3,7 +3,7 @@ import { X, ShieldCheck, Building2, Megaphone, FileUp, Check, Loader2 } from "lu
 import { C, gradients, font, radius } from "../core/theme";
 import type { BrandRegistration, CampaignRegistration } from "../core/types";
 import { useApp } from "../store/AppStore";
-import { apiGetRequirements, apiSubmitRequirements, type ApiAddressInput, type ApiRequirement, type ApiRequirementValue, type ApiRequirements } from "../services/api";
+import { apiGetRequirements, apiSubmitRequirements, apiTenDlcCost, type ApiAddressInput, type ApiRequirement, type ApiRequirementValue, type ApiRequirements } from "../services/api";
 
 /* ============================================================================
    Verification forms — the real KYC/registration flows that gate SMS sending.
@@ -34,7 +34,7 @@ const USECASES = [
   { v: "SECURITY_ALERT", l: "Security alert" },
   { v: "MARKETING", l: "Marketing (needs 2 samples)" },
   { v: "MIXED", l: "Mixed (multiple)" },
-  { v: "LOW_VOLUME_MIXED", l: "Low volume mixed" },
+  { v: "LOW_VOLUME", l: "Low volume mixed (cheapest, < 2,000 texts/month)" },
 ];
 
 /* ----------------------------------------------------------------- modal shell */
@@ -132,9 +132,15 @@ function SubmitBtn({ busy, label, onClick, disabled }: { busy: boolean; label: s
 
 /* ----------------------------------------------------------------- BRAND form */
 export function BrandForm({ onClose, desktop = false }: { onClose: () => void; desktop?: boolean }) {
-  const { registerBrand, state, showToast } = useApp();
+  const { registerBrand, refreshTenDlc, state, showToast, telnyxMode } = useApp();
   const [busy, setBusy] = useState(false);
+  // Wallet charge for a NEW brand (resubmitting a rejected one is free).
+  const resubmit = !!state.brand;
+  const [fee, setFee] = useState<number | null>(state.brand?.brandFee ?? null);
+  useEffect(() => { if (telnyxMode === "live" && !resubmit) refreshTenDlc().then((t) => t && setFee(t.fees.brand)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [first, ...rest] = (state.user?.name || "").split(" ");
   const [f, setF] = useState<BrandRegistration>({
+    firstName: first || "", lastName: rest.join(" "), mobilePhone: "",
     entityType: "PRIVATE_PROFIT",
     displayName: state.user?.workspace?.replace(/'s Workspace$/, "") || "",
     companyName: state.user?.company || "",
@@ -148,8 +154,9 @@ export function BrandForm({ onClose, desktop = false }: { onClose: () => void; d
   const isPublic = f.entityType === "PUBLIC_PROFIT";
 
   const submit = async () => {
-    const need: [string, string][] = [["Legal business name", f.companyName], ["Display name", f.displayName], ["Contact email", f.email], ["Contact phone", f.phone], ["Street", f.street], ["City", f.city], ["State", f.state], ["Postal code", f.postalCode]];
-    if (!sole) need.push(["EIN / Tax ID", f.ein]);
+    const need: [string, string][] = [["Display name", f.displayName], ["Contact email", f.email], ["Contact phone", f.phone], ["Street", f.street], ["City", f.city], ["State", f.state], ["Postal code", f.postalCode]];
+    if (sole) need.push(["First name", f.firstName ?? ""], ["Last name", f.lastName ?? ""], ["Mobile number", f.mobilePhone ?? ""]);
+    else need.push(["Legal business name", f.companyName], ["EIN / Tax ID", f.ein]);
     if (isPublic) need.push(["Stock symbol", f.stockSymbol]);
     const missing = need.find(([, v]) => !v.trim());
     if (missing) { showToast(`${missing[0]} is required`, "error"); return; }
@@ -175,7 +182,21 @@ export function BrandForm({ onClose, desktop = false }: { onClose: () => void; d
         </p>
       </div>
       <Select label="Business type" value={f.entityType} onChange={(v) => set("entityType")(v)} options={ENTITY_TYPES} />
-      <Text label="Legal business name" value={f.companyName} onChange={set("companyName")} placeholder="DIGIRINGO LLC" />
+      {sole ? (
+        <>
+          <Row desktop={desktop}>
+            <Text label="First name" value={f.firstName ?? ""} onChange={set("firstName")} />
+            <Text label="Last name" value={f.lastName ?? ""} onChange={set("lastName")} />
+          </Row>
+          <Text label="Your US / Canada mobile number" value={f.mobilePhone ?? ""} onChange={set("mobilePhone")} placeholder="+1 555 123 4567" />
+          <p style={{ color: C.muted, fontSize: 11.5, lineHeight: 1.5, margin: "-6px 0 13px" }}>
+            Carriers text a 6-digit code to this mobile to confirm it's you. It must be a real US/Canada mobile, not a VoIP number.
+            Sole proprietors can register one number for texting.
+          </p>
+        </>
+      ) : (
+        <Text label="Legal business name" value={f.companyName} onChange={set("companyName")} placeholder="DIGIRINGO LLC" />
+      )}
       <Text label="Brand / display name" value={f.displayName} onChange={set("displayName")} placeholder="DIGIRINGO" />
       {!sole && (
         <Row desktop={desktop}>
@@ -205,19 +226,24 @@ export function BrandForm({ onClose, desktop = false }: { onClose: () => void; d
         <Select label="Country" value={f.country} onChange={(v) => set("country")(v)} options={COUNTRIES.map((v) => ({ v, l: v }))} />
       </Row>
       <p style={{ color: C.faint, fontSize: 11, lineHeight: 1.5, margin: "4px 0 14px" }}>
-        A one-time carrier fee (~$4.50 brand) applies when this is submitted. Verification usually completes within a few business days.
+        {resubmit
+          ? "Resubmitting corrected details is free. The carrier registry re-checks them, usually within minutes to a few business days."
+          : fee ? `A one-time $${fee.toFixed(2)} carrier registration fee is charged from your wallet (refunded if the registry rejects the request). Verification usually completes within minutes to a few business days.`
+          : "Verification usually completes within minutes to a few business days."}
       </p>
-      <SubmitBtn busy={busy} label="Submit for verification" onClick={submit} />
+      <SubmitBtn busy={busy} label={resubmit ? "Resubmit details" : fee ? `Submit — $${fee.toFixed(2)}` : "Submit for verification"} onClick={submit} />
     </Sheet>
   );
 }
 
 /* -------------------------------------------------------------- CAMPAIGN form */
 export function CampaignForm({ numberId, onClose, desktop = false }: { numberId: string; onClose: () => void; desktop?: boolean }) {
-  const { registerNumber, showToast } = useApp();
+  const { registerNumber, showToast, state, telnyxMode } = useApp();
   const [busy, setBusy] = useState(false);
+  // Sole-proprietor brands can only run the SOLE_PROPRIETOR use case.
+  const sole = state.brand?.entityType === "SOLE_PROPRIETOR";
   const [f, setF] = useState<CampaignRegistration>({
-    usecase: "MIXED",
+    usecase: sole ? "SOLE_PROPRIETOR" : "LOW_VOLUME",
     description: "Transactional and customer-service messages to people who opted in through our app.",
     messageFlow: "Users opt in by creating an account in the DIGIRINGO app and confirming their number.",
     sample1: "Your DIGIRINGO verification code is 123456.",
@@ -233,6 +259,13 @@ export function CampaignForm({ numberId, onClose, desktop = false }: { numberId:
   const set = (k: keyof CampaignRegistration) => (v: string) => setF((p) => ({ ...p, [k]: v }));
   const setBool = (k: keyof CampaignRegistration) => (v: boolean) => setF((p) => ({ ...p, [k]: v }));
   const needsTwoSamples = f.usecase === "MARKETING" || f.usecase === "MIXED";
+  // The carrier's fee for this use case (first 3 months upfront, then monthly).
+  const [cost, setCost] = useState<{ upfront: number; monthly: number } | null>(null);
+  useEffect(() => {
+    if (telnyxMode !== "live") return;
+    setCost(null);
+    apiTenDlcCost(f.usecase).then(setCost).catch(() => setCost(null));
+  }, [f.usecase, telnyxMode]);
 
   const submit = async () => {
     if (!f.description.trim() || !f.sample1.trim() || !f.messageFlow.trim()) { showToast("Fill the description, sample 1 and the opt-in flow", "error"); return; }
@@ -250,10 +283,20 @@ export function CampaignForm({ numberId, onClose, desktop = false }: { numberId:
   return (
     <Sheet title="Messaging campaign" icon={<Megaphone size={17} />} onClose={onClose} desktop={desktop}>
       <p style={{ color: C.muted, fontSize: 12.5, lineHeight: 1.55, marginBottom: 16 }}>
-        Tell carriers how you'll use SMS. This is created once (a one-time ~$15 vetting fee + monthly campaign fee
-        apply), then your numbers attach to it.
+        Tell carriers how you'll use SMS. You create this once — every US number you register afterwards attaches to it for free.
+        Carriers review it in 1–7 business days.
       </p>
-      <Select label="Use case" value={f.usecase} onChange={(v) => set("usecase")(v)} options={USECASES} />
+      {cost && cost.upfront > 0 && (
+        <div style={{ background: "rgba(124,92,255,0.1)", border: "1px solid rgba(124,92,255,0.3)", borderRadius: radius.md, padding: "10px 12px", marginBottom: 14 }}>
+          <p style={{ color: C.text, fontSize: 12.5, lineHeight: 1.5 }}>
+            Carrier fee: <b>${cost.upfront.toFixed(2)}</b> now (covers the first 3 months), then <b>${cost.monthly.toFixed(2)}/month</b> from your wallet.
+            Refunded if the carrier rejects the request when it's submitted.
+          </p>
+        </div>
+      )}
+      {sole
+        ? <p style={{ color: C.muted, fontSize: 12, marginBottom: 13 }}>Use case: <b style={{ color: C.text }}>Sole proprietor</b> (one number)</p>
+        : <Select label="Use case" value={f.usecase} onChange={(v) => set("usecase")(v)} options={USECASES} />}
       <Area label="What you'll send" value={f.description} onChange={set("description")} />
       <Text label="Sample message 1" value={f.sample1} onChange={set("sample1")} />
       <Text label={needsTwoSamples ? "Sample message 2" : "Sample message 2 (optional)"} value={f.sample2} onChange={set("sample2")} />
@@ -275,7 +318,7 @@ export function CampaignForm({ numberId, onClose, desktop = false }: { numberId:
       <Toggle label="Direct lending / loan arrangement" value={f.directLending} onChange={setBool("directLending")} />
       <Toggle label="Affiliate marketing" value={f.affiliateMarketing} onChange={setBool("affiliateMarketing")} />
 
-      <SubmitBtn busy={busy} label="Create campaign & register number" onClick={submit} />
+      <SubmitBtn busy={busy} label={cost && cost.upfront > 0 ? `Create campaign & register — $${cost.upfront.toFixed(2)}` : "Create campaign & register number"} onClick={submit} />
     </Sheet>
   );
 }
@@ -467,7 +510,8 @@ const GUIDE: Record<"us" | "intl", { intro: string; steps: [string, string][]; t
     ],
     tips: [
       "Brand review is usually minutes to 1 day; campaign review 1–7 business days.",
-      "Sole proprietors without an EIN can still register — use your own legal name.",
+      "Carrier fees come from your wallet and are shown before you submit: a one-time brand fee, then the campaign fee (Low volume is cheapest). Extra numbers attach free.",
+      "Sole proprietors without an EIN can still register with their own name — carriers text a code to your US/Canada mobile, and one number can be registered.",
       "Fake or mismatched business details are always rejected by the carrier.",
     ],
   },

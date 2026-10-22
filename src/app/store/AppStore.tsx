@@ -19,6 +19,7 @@ import {
   apiLogin, apiRegister, apiMe, apiWallet, apiBuyNumber, apiReleaseNumber, apiSubscribe, apiGetSubscription, apiSetAutoRenew, apiCancelSubscription,
   apiResendVerification, apiGetCalls, apiGetNumbers, apiLogCall,
   apiGetActivity, apiLogActivity, apiMarkActivityRead, saveToken, clearToken, getToken, isNetworkError,
+  apiTenDlc, apiTenDlcBrand, apiTenDlcOtp, apiTenDlcCampaign, apiTenDlcAssign, type ApiTenDlc,
   type ApiUser, type ApiWallet, type ApiSubscription, type ApiCallLog, type ApiOwnedNumber, type ApiActivityItem,
 } from "../services/api";
 import { loadPaymentsConfig, capturePaypalReturn } from "../services/payments";
@@ -120,6 +121,7 @@ type Action =
   | { t: "REMOVE_NUMBER"; id: string }
   | { t: "SET_BALANCE"; balance: number }
   | { t: "SET_BRAND"; brand: BrandInfo | null }
+  | { t: "SET_TENDLC"; data: ApiTenDlc }
   | { t: "UPDATE_USER"; patch: Partial<User> }
   | { t: "TOGGLE_PREF"; key: keyof Preferences }
   | { t: "BLOCK"; num: string }
@@ -294,6 +296,26 @@ function reducer(s: AppState, a: Action): AppState {
     case "SET_BRAND":
       return { ...s, brand: a.brand };
 
+    case "SET_TENDLC": {
+      // Server-reported 10DLC state: the user's brand/campaign + each US number.
+      const t = a.data;
+      const brand: BrandInfo | null = t.brand ? {
+        id: t.brand.id, displayName: t.brand.displayName, status: t.brand.status, entityType: t.brand.entityType,
+        otpRequired: !!t.brand.otpRequired, reasons: t.brand.reasons ?? [],
+        campaignId: t.campaign?.id, campaign: t.campaign ? { id: t.campaign.id, usecase: t.campaign.usecase, status: t.campaign.status, reasons: t.campaign.reasons ?? [] } : null,
+        brandFee: t.fees?.brand,
+      } : null;
+      const smsToVerification = (v: string | undefined, cur: PhoneNumber["verification"]) =>
+        v === "active" ? "verified" : v === "pending" ? "pending" : v ? "unverified" : cur;
+      return {
+        ...s, brand,
+        numbers: s.numbers.map((n) => {
+          const e = toE164(n.number);
+          return e.startsWith("+1") && e in t.numbers ? { ...n, verification: smsToVerification(t.numbers[e], n.verification) } : n;
+        }),
+      };
+    }
+
     case "UPDATE_USER":
       return { ...s, user: s.user ? { ...s.user, ...a.patch, initial: (a.patch.name ?? s.user.name).charAt(0).toUpperCase() } : s.user };
 
@@ -337,6 +359,10 @@ interface Store {
   registerNumber: (id: string, campaign?: CampaignRegistration) => Promise<{ ok: boolean; error?: string }>;
   // 10DLC brand registration from the full business profile (A2P "KYC").
   registerBrand: (data: BrandRegistration) => Promise<{ ok: boolean; error?: string }>;
+  /** Re-read the user's 10DLC state from the server (live) — null in mock mode. */
+  refreshTenDlc: () => Promise<ApiTenDlc | null>;
+  /** Sole proprietor: confirm the texted code (pin) or resend it (no pin). */
+  brandOtp: (pin?: string) => Promise<{ ok: boolean; error?: string }>;
   // Number regulatory requirements (KYC documents for some countries).
   getNumberRequirements: (phoneNumber: string) => Promise<RegulatoryRequirement[]>;
   submitNumberDoc: (phoneNumber: string, requirementId: string, file: File) => Promise<{ ok: boolean; documentId?: string }>;
@@ -670,8 +696,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const loadNumbers = telnyx.mode === "live" ? apiGetNumbers().then((r) => r.numbers) : telnyx.listPhoneNumbers();
       // Persisted activity feed (live only) — so it survives a refresh.
       const loadActivity = telnyx.mode === "live" ? apiGetActivity().then((r) => r.activity) : Promise.resolve(null);
+      // LIVE: the user's own 10DLC registration (per-user, server-scoped).
+      const loadBrand = telnyx.mode === "live" ? apiTenDlc() : telnyx.getBrand();
       const [numsR, brandR, convosR, cdrsR, actR] = await Promise.allSettled([
-        loadNumbers, telnyx.getBrand(),
+        loadNumbers, loadBrand,
         telnyx.listConversations(), loadCalls, loadActivity,
       ]);
       if (actR.status === "fulfilled" && actR.value) {
@@ -695,7 +723,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         dispatch({ t: "SET_NUMBERS", numbers: appNumbers });
       }
-      if (brandR.status === "fulfilled" && brandR.value) dispatch({ t: "SET_BRAND", brand: { id: brandR.value.brandId, displayName: brandR.value.displayName, status: brandR.value.status } });
+      if (brandR.status === "fulfilled" && brandR.value) {
+        if (telnyx.mode === "live") dispatch({ t: "SET_TENDLC", data: brandR.value as ApiTenDlc });
+        else { const b = brandR.value as Awaited<ReturnType<typeof telnyx.getBrand>> & object; dispatch({ t: "SET_BRAND", brand: { id: b.brandId, displayName: b.displayName, status: b.status } }); }
+      }
       if (convosR.status === "fulfilled") {
         dispatch({ t: "SET_CONVERSATIONS", conversations: mapThreadsToConvos(convosR.value, appNumbers) });
         // Seed the "already seen" set so we don't chime for the whole backlog on
@@ -751,7 +782,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [state.user?.id, state.user?.emailVerified]);
 
   // Register the 10DLC brand from the full business profile the form collects.
+  const refreshTenDlc: Store["refreshTenDlc"] = useCallback(async () => {
+    if (telnyx.mode !== "live") return null;
+    try { const t = await apiTenDlc(); dispatch({ t: "SET_TENDLC", data: t }); return t; } catch { return null; }
+  }, []);
+
+  const brandOtp: Store["brandOtp"] = useCallback(async (pin) => {
+    try {
+      const t = await apiTenDlcOtp(pin);
+      dispatch({ t: "SET_TENDLC", data: t });
+      showToast(pin ? "Mobile number confirmed ✓" : "Code sent — check your phone");
+      return { ok: true };
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : "Couldn't verify the code";
+      showToast(reason, "error");
+      return { ok: false, error: reason };
+    }
+  }, [showToast]);
+
   const registerBrand: Store["registerBrand"] = useCallback(async (data) => {
+    if (telnyx.mode === "live") {
+      try {
+        const t = await apiTenDlcBrand(data);
+        dispatch({ t: "SET_TENDLC", data: t });
+        refreshWallet();
+        showToast(t.brand?.status === "VERIFIED" ? "Brand verified ✓" : t.brand?.otpRequired ? "Brand submitted — enter the code texted to your mobile" : "Brand submitted for review");
+        return { ok: true };
+      } catch (e) {
+        const reason = e instanceof Error && e.message ? e.message : "Brand registration failed";
+        refreshWallet();
+        showToast(reason, "error");
+        return { ok: false, error: reason };
+      }
+    }
     try {
       const b = await telnyx.registerBrand(data);
       dispatch({ t: "SET_BRAND", brand: { id: b.brandId, displayName: b.displayName, status: b.status } });
@@ -765,7 +828,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast(reason, "error");
       return { ok: false, error: reason };
     }
-  }, [pushActivity, showToast]);
+  }, [pushActivity, showToast, refreshWallet]);
 
   // Assign a number to the 10DLC campaign. Requires a VERIFIED brand; creates the
   // campaign from `campaignData` the first time, then assigns this number to it.
@@ -775,6 +838,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!state.brand || state.brand.status !== "VERIFIED") {
       showToast("Register your business brand first", "error");
       return { ok: false, error: "Brand not verified" };
+    }
+    if (telnyx.mode === "live") {
+      // Server-side: the campaign is created once per user and remembered there;
+      // numbers then attach to it. Status comes back from the carrier registry.
+      try {
+        if (!state.brand.campaignId) {
+          if (!campaignData) return { ok: false, error: "Campaign details required" };
+          dispatch({ t: "SET_TENDLC", data: await apiTenDlcCampaign(campaignData) });
+          refreshWallet();
+        }
+        const t = await apiTenDlcAssign(toE164(num.number));
+        dispatch({ t: "SET_TENDLC", data: t });
+        showToast(t.numbers[toE164(num.number)] === "active" ? "Number registered ✓" : "Submitted — texts unlock once carriers approve (1–7 business days)");
+        return { ok: true };
+      } catch (e) {
+        const reason = e instanceof Error && e.message ? e.message : "Registration failed";
+        refreshWallet();
+        refreshTenDlc();
+        showToast(reason, "error");
+        return { ok: false, error: reason };
+      }
     }
     dispatch({ t: "SET_VERIFICATION", id, status: "pending" });
     try {
@@ -800,7 +884,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast("Registration failed — try again", "error");
       return { ok: false, error: e instanceof Error ? e.message : "Registration failed" };
     }
-  }, [state.numbers, state.brand, pushActivity, showToast]);
+  }, [state.numbers, state.brand, pushActivity, showToast, refreshWallet, refreshTenDlc]);
 
   // Number regulatory requirements (KYC documents for some countries).
   const getNumberRequirements: Store["getNumberRequirements"] = useCallback((phoneNumber) => telnyx.getNumberRequirements(phoneNumber), []);
@@ -1176,7 +1260,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{
       state, toasts, showToast,
-      login, loginWithToken, logout, selectNumber, registerNumber, registerBrand, updateSettings,
+      login, loginWithToken, logout, selectNumber, registerNumber, registerBrand, refreshTenDlc, brandOtp, updateSettings,
       getNumberRequirements, submitNumberDoc, markNumberVerified,
       telnyxMode: telnyx.mode,
       sendMessage, startConversation, markRead, deleteMessage, deleteConversation, placeCall, activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, toggleCallHold, toggleSpeaker, dismissCall, addBalance, setWallet, refreshWallet, syncBillingSoon, buyNumber, releaseNumber, subscribe, subscribeAndBuy, subscribeByCardAndBuy, setAutoRenew, cancelSubscription, resendVerification, refreshUser, refreshSubscription, searchNumbers, readAllActivity,

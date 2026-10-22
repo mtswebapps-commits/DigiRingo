@@ -1644,3 +1644,82 @@ export async function adminKpis() {
     revenue6m: revSeries.map((r) => ({ m: r.m, rev: Math.round(Number(r.rev) || 0) })),
   };
 }
+
+/* ── 10DLC (US A2P SMS) registration — one brand + one campaign per user ──── */
+// Every user shares ONE platform Telnyx account, so the brand/campaign a user
+// registered must be remembered here — Telnyx itself can't tell them apart.
+// Self-created on first use (same pattern as sip_devices).
+let tenDlcReady = false;
+async function ensureTenDlcTable() {
+  if (tenDlcReady) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS tendlc_registrations (
+    user_id         BIGINT       NOT NULL PRIMARY KEY,
+    brand_id        VARCHAR(64)  NOT NULL DEFAULT '',
+    entity_type     VARCHAR(32)  NOT NULL DEFAULT '',
+    display_name    VARCHAR(255) NOT NULL DEFAULT '',
+    campaign_id     VARCHAR(64)  NOT NULL DEFAULT '',
+    usecase         VARCHAR(48)  NOT NULL DEFAULT '',
+    monthly_fee     DECIMAL(10,2) NOT NULL DEFAULT 0,
+    paid_until      BIGINT       NOT NULL DEFAULT 0,
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_tendlc_brand (brand_id),
+    INDEX idx_tendlc_campaign (campaign_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  tenDlcReady = true;
+}
+
+function rowToTenDlc(r) {
+  return r ? {
+    brandId: r.brand_id || "", entityType: r.entity_type || "", displayName: r.display_name || "",
+    campaignId: r.campaign_id || "", usecase: r.usecase || "",
+    monthlyFee: Number(r.monthly_fee) || 0, paidUntil: Number(r.paid_until) || 0,
+  } : null;
+}
+
+export async function getTenDlc(uid) {
+  await ensureTenDlcTable();
+  const [rows] = await pool.query("SELECT * FROM tendlc_registrations WHERE user_id = ? LIMIT 1", [uid]);
+  return rowToTenDlc(rows[0]);
+}
+
+export async function saveTenDlcBrand(uid, { brandId, entityType, displayName }) {
+  await ensureTenDlcTable();
+  await pool.query(
+    `INSERT INTO tendlc_registrations (user_id, brand_id, entity_type, display_name) VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE brand_id = VALUES(brand_id), entity_type = VALUES(entity_type), display_name = VALUES(display_name)`,
+    [uid, String(brandId), String(entityType || ""), String(displayName || "")]
+  );
+}
+
+export async function saveTenDlcCampaign(uid, { campaignId, usecase, monthlyFee, paidUntil }) {
+  await ensureTenDlcTable();
+  await pool.query(
+    "UPDATE tendlc_registrations SET campaign_id = ?, usecase = ?, monthly_fee = ?, paid_until = ? WHERE user_id = ?",
+    [String(campaignId), String(usecase || ""), Number(monthlyFee) || 0, Number(paidUntil) || 0, uid]
+  );
+}
+
+/** Monthly campaign fee (after the prepaid first 3 months), drawn from the wallet.
+ *  A short wallet is retried each sweep and the user is told; the campaign itself
+ *  is never torn down automatically. Returns the number renewed. */
+export async function renewDueTenDlc() {
+  await ensureTenDlcTable();
+  const [due] = await pool.query(
+    "SELECT * FROM tendlc_registrations WHERE campaign_id <> '' AND monthly_fee > 0 AND paid_until > 0 AND paid_until < ?",
+    [Date.now()]
+  );
+  let renewed = 0;
+  for (const r of due) {
+    const fee = Number(r.monthly_fee);
+    const ok = await debitIfEnough(r.user_id, fee, "SMS campaign (10DLC) — monthly carrier fee").catch(() => false);
+    if (ok) {
+      await pool.query("UPDATE tendlc_registrations SET paid_until = ? WHERE user_id = ?", [Number(r.paid_until) + 30 * 24 * 3600 * 1000, r.user_id]);
+      renewed++;
+    } else if (Date.now() - Number(r.paid_until) < 3600 * 1000 * 1.5) {
+      // Nudge once (first sweep after it fell due), not every hour.
+      await logActivity(r.user_id, { kind: "wallet", title: "Top up to keep SMS active", body: `Your US SMS campaign's $${fee.toFixed(2)} monthly carrier fee couldn't be charged — please top up your wallet.` }).catch(() => {});
+    }
+  }
+  return renewed;
+}

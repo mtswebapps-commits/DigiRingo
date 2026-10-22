@@ -81,7 +81,7 @@ const DIAL_ISO: Array<[string, string]> = [
  * conversation/call matching (keyed by phone_number_id) still lines up.
  */
 export function ownedToAppNumber(
-  n: { id: string; e164: string; kind: string; telnyxId: string; free: boolean; telnyxStatus?: string | null; numberType?: string | null },
+  n: { id: string; e164: string; kind: string; telnyxId: string; free: boolean; telnyxStatus?: string | null; numberType?: string | null; smsStatus?: string },
   prev?: PhoneNumber,
 ): PhoneNumber {
   const d = digits(n.e164);
@@ -98,8 +98,9 @@ export function ownedToAppNumber(
     numberType: n.numberType ?? prev?.numberType,
     voice: prev?.voice ?? true,
     price: prev?.price ?? 0,
+    // US/CA: the server reports the real 10DLC state (active = carriers approved).
     verification: iso === "US"
-      ? prev?.verification ?? "unverified"
+      ? n.smsStatus === "active" ? "verified" : n.smsStatus === "pending" ? "pending" : n.smsStatus ? "unverified" : prev?.verification ?? "unverified"
       : n.telnyxStatus && n.telnyxStatus !== "active" ? "pending" : "verified",
     regStatus: n.telnyxStatus ?? undefined,
     settings: prev?.settings ?? defaultSettings(n.kind === "tollfree" ? "Toll-free" : "New Number"),

@@ -34,6 +34,7 @@ import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify,
 import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
 import { freemiusConfigured, verifyWebhook as fsVerifyWebhook, parseEvent as fsParseEvent, grantFor as fsGrantFor, getProductId as fsProductId, getPublicKey as fsPublicKey, getCheckouts as fsCheckouts } from "./freemius.mjs";
 import * as settings from "./settings-store.mjs";
+import { createTenDlc } from "./tendlc.mjs";
 import { sendFcmToUser, sendFcm, fcmConfigured } from "./fcm.mjs";
 import { authorizeUrl as oauthAuthorizeUrl, exchangeCode as oauthExchangeCode, providerStatus as oauthProviders, isProvider as oauthIsProvider } from "./oauth.mjs";
 
@@ -456,6 +457,9 @@ const telnyxFetch = (path, init = {}) =>
     ...init,
     headers: { Authorization: `Bearer ${telnyxKey()}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
   });
+
+// Per-user 10DLC (US SMS registration) — see tendlc.mjs.
+const tenDlc = db ? createTenDlc({ db, telnyxFetch }) : null;
 
 /* ------------------------------------------------------ WebRTC (browser voice)
  * Real in-browser calling uses the Telnyx WebRTC SDK, which logs in with an
@@ -2037,6 +2041,34 @@ createServer(async (req, res) => {
     return send(res, 405, { error: "Method not allowed" });
   }
 
+  // 10DLC (US SMS registration) — per-user brand / campaign / number assignment.
+  if (req.url?.startsWith("/api/10dlc")) {
+    if (!db || !tenDlc) return send(res, 503, { error: "Database not configured" });
+    const uid = db.verifyToken(bearer(req));
+    if (!uid) return send(res, 401, { error: "Not authenticated" });
+    const url = new URL(req.url, "http://x");
+    const route = url.pathname.replace(/^\/api\/10dlc\/?/, "");
+    let data = {};
+    if (req.method === "POST") {
+      try { data = JSON.parse((await readBody(req)) || "{}"); } catch { return send(res, 400, { error: "Invalid request" }); }
+    }
+    try {
+      if (req.method === "GET" && route === "") return send(res, 200, await tenDlc.status(uid));
+      if (req.method === "GET" && route === "cost") {
+        const c = await tenDlc.campaignCost(String(url.searchParams.get("usecase") || "MIXED"));
+        return send(res, 200, tenDlc.billUsers ? c : { upfront: 0, monthly: 0 });
+      }
+      if (req.method === "POST" && route === "brand") return send(res, 200, await tenDlc.registerBrand(uid, data));
+      if (req.method === "POST" && route === "brand/otp") return send(res, 200, await tenDlc.brandOtp(uid, data.pin));
+      if (req.method === "POST" && route === "campaign") return send(res, 200, await tenDlc.createCampaign(uid, data));
+      if (req.method === "POST" && route === "assign") return send(res, 200, await tenDlc.assignNumber(uid, data.e164));
+      return send(res, 404, { error: "Not found" });
+    } catch (e) {
+      console.warn("10dlc:", route, e.message);
+      return send(res, e.status || 502, { error: e.message || "Couldn't reach the carrier registry" });
+    }
+  }
+
   // Regulatory requirements (non-US numbers): read what Telnyx needs for a number the
   // user owns, and submit text / document / address answers onto its sub-number-order.
   if (req.url?.startsWith("/api/numbers/requirements")) {
@@ -2109,7 +2141,12 @@ createServer(async (req, res) => {
     try {
       const [numbers, capacity] = await Promise.all([db.listNumbers(uid), db.numberCapacity(uid)]);
       await Promise.all((numbers || []).map(async (n) => {
-        if (n.e164?.startsWith("+1")) { n.numberType = n.kind === "tollfree" ? "toll_free" : "local"; return; }
+        if (n.e164?.startsWith("+1")) {
+          n.numberType = n.kind === "tollfree" ? "toll_free" : "local";
+          // 10DLC registration state drives whether the app lets this number text.
+          if (tenDlc && n.kind !== "tollfree") n.smsStatus = await tenDlc.numberSmsStatus(uid, n.e164).catch(() => "none");
+          return;
+        }
         const info = await telnyxNumberInfo(n.e164);
         n.telnyxStatus = info.status;
         n.numberType = info.type || n.kind;
@@ -2528,8 +2565,9 @@ createServer(async (req, res) => {
     const allowed =
       (req.method === "GET"  && path.startsWith("/available_phone_numbers")) ||
       (req.method === "POST" && path.startsWith("/messages")) ||
-      (req.method === "GET"  && path.startsWith("/messages/")) ||
-      path.startsWith("/10dlc");
+      (req.method === "GET"  && path.startsWith("/messages/"));
+    // 10DLC is NOT passed through: the shared account holds every user's brands,
+    // so registration goes through the ownership-checked /api/10dlc/* routes.
     if (!allowed) return send(res, 403, { errors: [{ detail: "This operation isn't permitted." }] });
   }
 
@@ -2590,6 +2628,8 @@ createServer(async (req, res) => {
         .then((n) => { if (n) console.log(`↻ auto-renewed ${n} subscription(s)`); }),
       db.renewDueNumbers?.()
         .then((n) => { if (n) console.log(`↻ auto-renewed ${n} number rental(s)`); }),
+      db.renewDueTenDlc?.()
+        .then((n) => { if (n) console.log(`↻ charged ${n} 10DLC campaign fee(s)`); }),
     ]).then((rs) => rs.forEach((r) => { if (r.status === "rejected") console.error("renewal sweep failed:", r.reason?.message); }));
     runRenewals();
     setInterval(runRenewals, 60 * 60 * 1000).unref?.();

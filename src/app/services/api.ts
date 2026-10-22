@@ -93,7 +93,7 @@ export interface ApiCapacity {
   hasPlan: boolean; tier?: string; used?: number; included?: number; max?: number;
   isFree?: boolean; atCap?: boolean; numberType?: NumberKind;
 }
-export interface ApiOwnedNumber { id: string; e164: string; kind: NumberKind; telnyxId: string; free: boolean; time: string; telnyxStatus?: string | null; numberType?: string | null; }
+export interface ApiOwnedNumber { id: string; e164: string; kind: NumberKind; telnyxId: string; free: boolean; time: string; telnyxStatus?: string | null; numberType?: string | null; smsStatus?: "active" | "pending" | "failed" | "none"; }
 
 /** List the user's owned numbers + their plan's number-capacity. */
 export const apiGetNumbers = () => req<{ numbers: ApiOwnedNumber[]; capacity: ApiCapacity }>("/api/numbers");
@@ -128,6 +128,20 @@ export const apiGetRequirements = (e164: string) =>
   req<ApiRequirements>(`/api/numbers/requirements?e164=${encodeURIComponent(e164)}`);
 export const apiSubmitRequirements = (e164: string, values: Record<string, ApiRequirementValue>) =>
   req<ApiRequirements & { ok: boolean }>("/api/numbers/requirements", { method: "POST", body: JSON.stringify({ e164, values }) });
+
+/** 10DLC (US SMS registration) — the signed-in user's own brand + campaign. */
+export interface ApiTenDlc {
+  brand: { id: string; displayName: string; entityType: string; status: "PENDING" | "VERIFIED" | "UNVERIFIED" | "FAILED"; otpRequired?: boolean; reasons: string[] } | null;
+  campaign: { id: string; usecase: string; status: "PENDING" | "ACTIVE" | "REJECTED"; reasons: string[]; monthlyFee?: number } | null;
+  numbers: Record<string, "active" | "pending" | "failed" | "none">;
+  fees: { brand: number };
+}
+export const apiTenDlc = () => req<ApiTenDlc>("/api/10dlc");
+export const apiTenDlcCost = (usecase: string) => req<{ upfront: number; monthly: number }>(`/api/10dlc/cost?usecase=${encodeURIComponent(usecase)}`);
+export const apiTenDlcBrand = (data: unknown) => req<ApiTenDlc>("/api/10dlc/brand", { method: "POST", body: JSON.stringify(data) });
+export const apiTenDlcOtp = (pin?: string) => req<ApiTenDlc>("/api/10dlc/brand/otp", { method: "POST", body: JSON.stringify({ pin }) });
+export const apiTenDlcCampaign = (data: unknown) => req<ApiTenDlc>("/api/10dlc/campaign", { method: "POST", body: JSON.stringify(data) });
+export const apiTenDlcAssign = (e164: string) => req<ApiTenDlc>("/api/10dlc/assign", { method: "POST", body: JSON.stringify({ e164 }) });
 
 /** Release (give up) a number — frees it on Telnyx and stops its monthly rental. */
 export const apiReleaseNumber = (phoneNumber: string) =>
