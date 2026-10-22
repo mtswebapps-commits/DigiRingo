@@ -1990,21 +1990,25 @@ createServer(async (req, res) => {
     let data; try { data = JSON.parse(body || "{}"); } catch { data = {}; }
     const phoneNumber = String(data.phoneNumber || "");
     const kind = data.kind === "tollfree" ? "tollfree" : "local";
+    const clientPrice = typeof data.price === "number" ? data.price : 0;
     if (!phoneNumber) return send(res, 400, { error: "Invalid request" });
 
     const free = false;
     // Look up actual Telnyx wholesale cost for this number and apply markup.
+    // If the lookup fails (number already reserved), use the client-provided
+    // retail price (which came from the same Telnyx API at search time).
     let wholesaleCost = kind === "tollfree" ? 2.0 : 1.0;
+    let lookedUp = false;
     try {
       const lookupUrl = `https://api.telnyx.com/v2/available_phone_numbers?filter[phone_number]=${encodeURIComponent(phoneNumber)}&filter[limit]=1`;
       const lr = await fetch(lookupUrl, { headers: { Authorization: `Bearer ${telnyxKey()}` } });
       if (lr.ok) {
         const ld = await lr.json();
         const mc = ld?.data?.[0]?.cost_information?.monthly_cost;
-        if (mc) wholesaleCost = parseFloat(mc);
+        if (mc) { wholesaleCost = parseFloat(mc); lookedUp = true; }
       }
-    } catch { /* fall back to default wholesale */ }
-    const amount = free ? 0 : markup(wholesaleCost, 2);
+    } catch { /* fall back */ }
+    let amount = lookedUp ? markup(wholesaleCost, 2) : (clientPrice > 0 ? clientPrice : markup(wholesaleCost, 2));
     const label = `Number ${phoneNumber} (${kind})`;
 
     // 1) Pay from wallet — every number costs its rental.

@@ -938,7 +938,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     try {
-      const res = await apiBuyNumber(toE164(n.number), kind);
+      const res = await apiBuyNumber(toE164(n.number), kind, price);
       const tid = res.order?.phone_numbers?.[0]?.id ?? res.order?.id ?? n.id;
       const wasFree = res.free ?? free;
       dispatch({ t: "BUY_NUMBER", number: { ...n, id: tid, price: wasFree ? 0 : price } });

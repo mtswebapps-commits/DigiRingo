@@ -116,8 +116,8 @@ export interface BuyResult {
  * bills extras at the flat rental (from the WALLET) up to the plan cap. Paying
  * by card = topping the wallet up via Stripe first.
  */
-export const apiBuyNumber = (phoneNumber: string, kind: NumberKind) =>
-  req<BuyResult>("/api/numbers/buy", { method: "POST", body: JSON.stringify({ phoneNumber, kind }) });
+export const apiBuyNumber = (phoneNumber: string, kind: NumberKind, price?: number) =>
+  req<BuyResult>("/api/numbers/buy", { method: "POST", body: JSON.stringify({ phoneNumber, kind, price }) });
 
 /** Release (give up) a number — frees it on Telnyx and stops its monthly rental. */
 export const apiReleaseNumber = (phoneNumber: string) =>
