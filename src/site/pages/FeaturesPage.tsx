@@ -82,11 +82,11 @@ export function FeaturesPage() {
                 Pay your way, <span className="dg-grad-text">see every cent.</span>
               </h2>
               <p className="dg-lead" style={{ marginTop: 18, fontSize: 17 }}>
-                Top up securely with PayPal and spend as you go. Numbers, calls and texts draw from
+                Top up securely through our checkout partner Freemius and spend as you go. Numbers, calls and texts draw from
                 one balance, and an itemised history shows exactly where it went — no surprise bills.
               </p>
               <div style={{ marginTop: 22 }}>
-                {["Secure PayPal top-ups", "Itemised transaction history", "Spend only on what you use"].map((p) => (
+                {["Secure card top-ups", "Itemised transaction history", "Spend only on what you use"].map((p) => (
                   <div className="dg-feat-li" key={p} style={{ color: "var(--text)" }}>
                     <Check size={18} /> {p}
                   </div>

@@ -458,6 +458,8 @@ const telnyxFetch = (path, init = {}) =>
     headers: { Authorization: `Bearer ${telnyxKey()}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
   });
 
+let statusCache = null; // /api/status result, refreshed at most once a minute
+
 // Per-user 10DLC (US SMS registration) — see tendlc.mjs.
 const tenDlc = db ? createTenDlc({ db, telnyxFetch }) : null;
 
@@ -2451,6 +2453,29 @@ createServer(async (req, res) => {
       } catch (e) { return send(res, 500, { error: e.message }); }
     }
     return send(res, 404, { error: "Unknown blog route" });
+  }
+
+  // ── /api/status — public, no auth: live health of each service for the site's
+  // Status page. Only up/down booleans + latency are exposed (never balances).
+  if (req.url?.split("?")[0] === "/api/status" && req.method === "GET") {
+    if (!statusCache || Date.now() - statusCache.at > 60_000) {
+      const time = async (fn) => { const t = Date.now(); try { return { ok: !!(await fn()), ms: Date.now() - t }; } catch { return { ok: false, ms: Date.now() - t }; } };
+      const [database, carrier] = await Promise.all([
+        time(() => db?.dbHealth()),
+        time(async () => (await telnyxFetch("/messaging_profiles?page[size]=1")).ok),
+      ]);
+      statusCache = { at: Date.now(), body: {
+        checkedAt: new Date().toISOString(),
+        services: [
+          { id: "website", name: "Website & web app", ok: true },
+          { id: "api", name: "Accounts, wallet & billing", ok: database.ok, ms: database.ms },
+          { id: "calls", name: "Voice calls", ok: carrier.ok, ms: carrier.ms },
+          { id: "sms", name: "SMS messaging", ok: carrier.ok, ms: carrier.ms },
+          { id: "numbers", name: "Number search & provisioning", ok: carrier.ok, ms: carrier.ms },
+        ],
+      } };
+    }
+    return send(res, 200, statusCache.body);
   }
 
   // ── /api/rates — public, no auth: returns all retail rates (Telnyx wholesale + markup).

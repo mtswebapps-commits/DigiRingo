@@ -30,10 +30,11 @@ export function Reveal({
     <MotionTag
       className={className}
       style={style}
-      initial={{ opacity: 0, y: 26 }}
+      initial={{ opacity: 0, y: 14 }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.18, margin: "0px 0px -8% 0px" }}
-      transition={{ duration: 0.7, ease: EASE, delay: delay / 1000 }}
+      viewport={{ once: true, amount: 0.05 }}
+      // Kept short so content never feels slow to appear (stagger capped at 150ms).
+      transition={{ duration: 0.4, ease: EASE, delay: Math.min(delay, 300) / 2000 }}
     >
       {children}
     </MotionTag>

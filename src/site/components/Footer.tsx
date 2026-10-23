@@ -16,8 +16,8 @@ const COLS = [
     title: "Company",
     links: [
       { label: "Contact", to: "/contact" },
-      { label: "About", to: "/" },
-      { label: "Careers", to: "/" },
+      { label: "About", to: "/about" },
+      { label: "Careers", to: "/careers" },
       { label: "Blog", to: "/blog" },
     ],
   },
@@ -27,7 +27,7 @@ const COLS = [
       { label: "Privacy", to: "/privacy" },
       { label: "Terms", to: "/terms" },
       { label: "Trust center", to: "/features" },
-      { label: "Status", to: "/" },
+      { label: "Status", to: "/status" },
     ],
   },
 ];
@@ -80,7 +80,7 @@ export function Footer() {
 
         <div className="dg-footer-bottom">
           <span>© 2026 DIGIRINGO. All rights reserved.</span>
-          <span>2827 Dunvale Rd, Houston, TX 77063, USA</span>
+          <span>14 Hughes Ste B200, Irvine, CA 92618, USA</span>
           <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>Made for a borderless world 🌍</span>
         </div>
       </div>

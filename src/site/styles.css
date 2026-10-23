@@ -504,3 +504,7 @@ button { font-family: inherit; cursor: pointer; }
   .dg-grid-2, .dg-grid-3, .dg-grid-4 { grid-template-columns: 1fr; }
   .dg-footer-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* spinner (status page) */
+@keyframes dg-spin { to { transform: rotate(360deg); } }
+.dg-spin { animation: dg-spin 0.8s linear infinite; }

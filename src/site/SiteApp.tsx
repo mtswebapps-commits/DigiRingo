@@ -13,6 +13,7 @@ import { TermsPage, PrivacyPage } from "./pages/LegalPages";
 import { ResetPage } from "./pages/ResetPage";
 import { VerifyPage } from "./pages/VerifyPage";
 import { BlogPage } from "./pages/BlogPage";
+import { AboutPage, CareersPage, StatusPage } from "./pages/CompanyPages";
 
 /** Routes that render the bare auth layout (no marketing nav/footer chrome). */
 const AUTH_ROUTES = new Set(["/login", "/signup"]);
@@ -31,6 +32,12 @@ function Pages() {
       return <TermsPage />;
     case "/privacy":
       return <PrivacyPage />;
+    case "/about":
+      return <AboutPage />;
+    case "/careers":
+      return <CareersPage />;
+    case "/status":
+      return <StatusPage />;
     case "/login":
       return <LoginPage />;
     case "/signup":
@@ -74,10 +81,10 @@ function Frame() {
         <AnimatePresence mode="wait">
           <motion.div
             key={route}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
           >
             <Pages />
           </motion.div>

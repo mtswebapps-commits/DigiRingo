@@ -68,7 +68,9 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
     const s = regSeen[n.id] ?? n.regStatus;
     if (s === "requirement-info-under-review") return { text: "Documents under review by the carrier · usually 1–3 business days", color: C.amber, button: "View submission", primary: false };
     if (s === "requirement-info-exception") return { text: "Some documents were rejected — fix and resubmit", color: C.red, button: "Fix & resubmit", primary: true };
-    return { text: "ID & address needed to activate calls and SMS", color: C.amber, button: "Submit documents", primary: true };
+    // The carrier's ID/address rule applies to the NUMBER itself — a voice-only
+    // line (e.g. a UK landline) still needs it before calls connect.
+    return { text: n.sms ? "ID & address needed to activate calls and SMS" : "Voice-only number · ID & address needed by law to activate calls", color: C.amber, button: "Submit documents", primary: true };
   };
 
   // Pick the right flow for a number when "Register now" is tapped.
@@ -93,7 +95,7 @@ export function TrustCenterScreen({ onBack, desktop = false }: Props) {
       <div style={{ padding: "8px 20px 0" }}>
         <h1 style={{ color: C.text, fontSize: 22, fontWeight: 800, lineHeight: 1.25 }}>Register your numbers</h1>
         <p style={{ color: C.muted, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-          US and Canadian numbers need 10DLC registration (brand + campaign) before sending texts. Numbers in other countries (e.g. UK) instead need the owner's ID and address before they switch on.
+          US and Canadian numbers need 10DLC registration (brand + campaign) before sending texts. Numbers in other countries (e.g. UK) need the owner's ID and address before they switch on — this applies to calls too, so it's required even for voice-only numbers.
         </p>
       </div>
 

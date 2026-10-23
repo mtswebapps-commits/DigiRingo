@@ -9,7 +9,7 @@ import { Reveal } from "../components/Reveal";
    before a real public launch.
    ========================================================================== */
 
-const UPDATED = "July 1, 2026";
+const UPDATED = "October 24, 2026";
 
 function LegalLayout({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -86,17 +86,23 @@ export function TermsPage() {
 
       <H>5. Plans, billing &amp; payments</H>
       <P>
-        Paid plans and any add-ons are billed in advance as described at checkout. Payments are
-        processed by our payment provider (PayPal); we do not store your full card details. Free
-        trials, taxes, usage charges and applicable fees are shown before you are charged. Unless
-        required by law, charges are non-refundable. You can cancel at any time; cancellation stops
-        future charges and may end access at the end of the paid period.
+        Paid plans, wallet top-ups and any add-ons are billed in advance as described at checkout.
+        Our online orders are processed by <b style={{ color: "var(--text)" }}>Freemius, Inc.</b>, which acts as
+        our <b style={{ color: "var(--text)" }}>Merchant of Record</b>: Freemius is the seller on your receipt, takes
+        the payment, and collects and remits any applicable sales tax or VAT. Your card or wallet
+        details are entered on Freemius's secure checkout — DIGIRINGO never sees or stores your full
+        card details. Usage charges (calls, texts, numbers, carrier registration fees) are drawn from
+        your DIGIRINGO wallet and are shown before you are charged. Unless required by law, charges
+        are non-refundable; refund requests for an order are handled by Freemius on our behalf. You
+        can cancel at any time; cancellation stops future charges and may end access at the end of
+        the paid period.
       </P>
 
       <H>6. Third-party services</H>
       <P>
-        The Service relies on third parties such as Telnyx (telephony) and PayPal (payments). Your
-        use of those services may also be subject to their terms and privacy policies.
+        The Service relies on third parties such as Telnyx (telephony) and Freemius (payments, as
+        Merchant of Record). Your use of those services may also be subject to their terms and
+        privacy policies.
       </P>
 
       <H>7. Suspension &amp; termination</H>
@@ -140,7 +146,7 @@ export function PrivacyPage() {
       <ul>
         <LI><b style={{ color: "var(--text)" }}>Account data</b> — your name, email and password (stored hashed).</LI>
         <LI><b style={{ color: "var(--text)" }}>Telephony data</b> — the numbers you own, and your messages and call records, which we process to provide the inbox, history and delivery.</LI>
-        <LI><b style={{ color: "var(--text)" }}>Billing data</b> — your wallet balance and transactions. Payments are handled by PayPal; we do not store your full card details.</LI>
+        <LI><b style={{ color: "var(--text)" }}>Billing data</b> — your wallet balance and transactions. Payments are processed by Freemius, our Merchant of Record; we never see or store your full card details.</LI>
         <LI><b style={{ color: "var(--text)" }}>Verification data</b> — business details (for 10DLC) or documents you upload for number regulatory requirements.</LI>
         <LI><b style={{ color: "var(--text)" }}>Usage &amp; device data</b> — basic logs and settings (e.g. your theme preference) needed to run and secure the Service.</LI>
       </ul>
@@ -155,9 +161,11 @@ export function PrivacyPage() {
       <H>3. How we share it</H>
       <P>
         We share data only as needed to run the Service: with <b style={{ color: "var(--text)" }}>Telnyx</b> and
-        carriers to deliver calls/messages and register numbers; with <b style={{ color: "var(--text)" }}>PayPal</b> to
-        process payments; and where required by law or to protect rights and safety. We do not sell
-        your personal data.
+        carriers to deliver calls/messages and register numbers; with <b style={{ color: "var(--text)" }}>Freemius, Inc.</b>, our
+        Merchant of Record, which processes payments and handles tax and receipts for your orders (it
+        receives your name, email, billing country and payment details directly —
+        see <a href="https://freemius.com/privacy/" target="_blank" rel="noopener">Freemius's privacy policy</a>);
+        and where required by law or to protect rights and safety. We do not sell your personal data.
       </P>
 
       <H>4. Data retention</H>
