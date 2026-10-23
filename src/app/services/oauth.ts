@@ -15,7 +15,8 @@ import { API_ORIGIN } from "./origin";
 
 export type OAuthProvider = "google" | "apple";
 export type OAuthProviders = { google: boolean; apple: boolean };
-type OAuthResult = { token?: string; error?: string };
+/** `isNew` = the callback created a brand-new account (drives the sign_up event). */
+type OAuthResult = { token?: string; error?: string; isNew?: boolean; provider?: string };
 
 const subs = new Set<(r: OAuthResult) => void>();
 // The web hash is captured SYNCHRONOUSLY at app start (see captureWebHash), which
@@ -79,7 +80,7 @@ function captureWebHash() {
   if (!token && !error) return;
   // Strip the hash so a refresh can't replay it.
   try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch { /* ignore */ }
-  emit({ token, error: error ? decodeURIComponent(error) : undefined });
+  emit({ token, error: error ? decodeURIComponent(error) : undefined, isNew: q.get("new") === "1", provider: q.get("provider") || undefined });
 }
 
 /** Native: catch the `com.digiringo.app://oauth?token=…` deep link. */
@@ -93,7 +94,7 @@ async function registerNativeDeepLink() {
       const token = q.get("token") || undefined;
       const error = q.get("error") || undefined;
       try { const { Browser } = await import("@capacitor/browser"); await Browser.close(); } catch { /* ignore */ }
-      if (token || error) emit({ token, error: error ? decodeURIComponent(error) : undefined });
+      if (token || error) emit({ token, error: error ? decodeURIComponent(error) : undefined, isNew: q.get("new") === "1", provider: q.get("provider") || undefined });
     });
   } catch { /* @capacitor/app unavailable (web) */ }
 }

@@ -15,6 +15,7 @@ import { getBundle, NUMBER_RENTAL } from "../core/plans";
 import type { BillingCycle, NumberKind, PayMethod } from "../core/plans";
 import { fetchRates } from "../core/rates";
 import { dialToE164 } from "../core/dial";
+import { trackSignUp, trackBuyNumber, trackWalletPurchases } from "../services/analytics";
 import {
   apiLogin, apiRegister, apiMe, apiWallet, apiBuyNumber, apiReleaseNumber, apiSubscribe, apiGetSubscription, apiSetAutoRenew, apiCancelSubscription,
   apiResendVerification, apiGetCalls, apiGetNumbers, apiLogCall,
@@ -39,8 +40,12 @@ const toAppUser = (u: ApiUser): User => {
   const name = u.name?.trim() || u.email.split("@")[0] || "User";
   return { id: String(u.id), name, email: u.email, workspace: `${name}'s Workspace`, initial: name.charAt(0).toUpperCase(), emailVerified: !!u.emailVerified };
 };
-const toAppTxns = (w: ApiWallet): WalletTxn[] =>
-  w.txns.map((t) => ({ id: t.id, label: t.label, amount: t.amount, time: t.time }));
+// Every server wallet load funnels through here, so it's also where newly
+// credited card top-ups are reported to analytics (deduped, native only).
+const toAppTxns = (w: ApiWallet): WalletTxn[] => {
+  trackWalletPurchases(w.txns);
+  return w.txns.map((t) => ({ id: t.id, label: t.label, amount: t.amount, time: t.time }));
+};
 const toAppSub = (s: ApiSubscription | null): Subscription | null => {
   if (!s || !(s.status === "active" || s.status === "past_due")) return null;
   const b = getBundle(s.tier);
@@ -503,6 +508,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const res = name ? await apiRegister(email, password, name) : await apiLogin(email, password);
       saveToken(res.token);
+      if (name) trackSignUp("email");
       // Now that we have an account, ship any FCM token that registered before
       // login so background call/SMS alerts work in this very session.
       flushPushToken();
@@ -661,9 +667,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Subscribe BEFORE initOAuthCapture(): the web-hash capture emits the token
     // synchronously, so the listener must already be registered (the result is
     // also latched in oauth.ts as a belt-and-braces guard against this race).
-    const off = onOAuthResult(async ({ token, error }) => {
+    const off = onOAuthResult(async ({ token, error, isNew, provider }) => {
       if (token) {
         const r = await loginWithToken(token);
+        if (r.ok && isNew) trackSignUp(provider === "apple" ? "apple" : "google");
         if (r.ok) showToast("Signed in ✓");
         else showToast(r.error || "Sign-in failed", "error");
       } else if (error) {
@@ -1029,6 +1036,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const tid = res.order?.phone_numbers?.[0]?.id ?? res.order?.id ?? n.id;
       const wasFree = res.free ?? free;
       dispatch({ t: "BUY_NUMBER", number: { ...n, id: tid, price: wasFree ? 0 : price } });
+      trackBuyNumber(wasFree ? 0 : price);
       if (res.wallet) dispatch({ t: "SET_WALLET", balance: res.wallet.balance, txns: toAppTxns(res.wallet) });
       const trustNote2 = n.country === "United States" ? " Register it in Trust center to send SMS." : "";
       pushActivity({ kind: "number", title: "Number added", body: wasFree ? `${n.number} added free with your plan.${trustNote2}` : `${n.number} added for $${price.toFixed(2)}/mo.${trustNote2}`, time: "just now" });

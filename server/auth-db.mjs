@@ -286,7 +286,9 @@ export async function upsertOAuthUser({ provider, providerId, email, name }) {
   }
 
   // 3) brand-new verified account (no password)
+  let isNew = false;
   if (!u) {
+    isNew = true;
     if (!email) throw httpErr(400, "This sign-in did not share an email address");
     const [r] = await pool.query(
       "INSERT INTO users (email, password_hash, name, provider, provider_id, email_verified) VALUES (?, NULL, ?, ?, ?, 1)",
@@ -298,7 +300,7 @@ export async function upsertOAuthUser({ provider, providerId, email, name }) {
     throw httpErr(403, "This account has been suspended. Contact support.");
   }
 
-  return { token: signToken(u.id), user: publicUser(u) };
+  return { token: signToken(u.id), user: publicUser(u), isNew };
 }
 
 /* ------------------------------------------------------ password reset */
@@ -339,7 +341,7 @@ export async function resetPassword(rawToken, newPassword) {
 export async function getWallet(uid) {
   const [u] = await pool.query("SELECT wallet_balance FROM users WHERE id = ?", [uid]);
   const [tx] = await pool.query(
-    "SELECT id, amount, label, kind, created_at FROM wallet_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+    "SELECT id, amount, label, kind, ref, created_at FROM wallet_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 100",
     [uid]
   );
   return {
@@ -350,6 +352,10 @@ export async function getWallet(uid) {
       label: t.label,
       kind: t.kind,
       time: relTime(t.created_at),
+      // Payment reference (e.g. "fs_<Freemius payment id>") + epoch ms — lets the
+      // app report each card top-up to analytics exactly once.
+      ref: t.ref || "",
+      at: new Date(t.created_at).getTime() || 0,
     })),
   };
 }

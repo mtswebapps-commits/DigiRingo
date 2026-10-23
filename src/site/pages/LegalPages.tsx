@@ -191,7 +191,11 @@ export function PrivacyPage() {
       <H>7. Cookies &amp; local storage</H>
       <P>
         We use your browser's local storage for essential features such as keeping you signed in and
-        remembering your theme. We do not use third-party advertising trackers.
+        remembering your theme. The website uses no third-party advertising trackers. The Android
+        app uses Google Analytics for Firebase to measure app usage and our own ad campaigns (for
+        example installs, sign-ups and purchases); it receives app-event data and your device's
+        advertising ID, never your calls or messages. You can reset or limit the advertising ID in
+        your Android settings.
       </P>
 
       <H>8. Children</H>

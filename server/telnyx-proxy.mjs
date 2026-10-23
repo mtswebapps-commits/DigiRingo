@@ -1919,8 +1919,9 @@ createServer(async (req, res) => {
         if (!db) return back({ error: "database not configured" });
         try {
           const profile = await oauthExchangeCode(provider, { code, redirectUri });
-          const { token } = await db.upsertOAuthUser(profile);
-          return back({ token });
+          const { token, isNew } = await db.upsertOAuthUser(profile);
+          // new=1 lets the app report a sign_up (vs. a returning login) to analytics.
+          return back(isNew ? { token, new: "1", provider } : { token });
         } catch (e) {
           console.error(`OAuth ${provider} failed:`, e.message);
           return back({ error: e.message || "sign-in failed" });

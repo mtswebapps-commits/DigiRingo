@@ -11,6 +11,7 @@
  * client-id which was baked into the bundle at build time).
  */
 import { API_ORIGIN } from "./origin";
+import { trackPurchase } from "./analytics";
 
 interface CheckoutIds { plan_id: string; pricing_id?: string }
 interface FsConfig {
@@ -99,9 +100,13 @@ export async function openCheckout(
       licenses: 1,
       ...(buyer.email ? { user_email: buyer.email } : {}),
       ...(buyer.name ? { user_firstname: buyer.name } : {}),
-      purchaseCompleted: (data: { purchase?: { id?: string | number }; id?: string | number }) => {
+      purchaseCompleted: (data: { purchase?: { id?: string | number; initial_amount?: number | string; gross?: number | string }; id?: string | number }) => {
         purchased = true;
-        resolve({ purchaseId: String(data?.purchase?.id ?? data?.id ?? "") });
+        const purchaseId = String(data?.purchase?.id ?? data?.id ?? "");
+        // Top-ups carry their own amount; bundles report Freemius's charged total.
+        const value = item.kind === "topup" ? item.amount : Number(data?.purchase?.initial_amount ?? data?.purchase?.gross ?? 0);
+        trackPurchase(purchaseId ? `fs_purchase_${purchaseId}` : "", value);
+        resolve({ purchaseId });
       },
       // `success` fires when the overlay is dismissed after a completed purchase.
       success: () => { /* already resolved by purchaseCompleted */ },

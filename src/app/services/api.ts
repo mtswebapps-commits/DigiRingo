@@ -15,7 +15,7 @@ export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY); } 
 export const clearToken = () => { try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ } };
 
 export interface ApiUser { id: number; email: string; name: string; walletBalance: number; emailVerified: boolean; }
-export interface ApiWalletTxn { id: string; amount: number; label: string; kind: string; time: string; }
+export interface ApiWalletTxn { id: string; amount: number; label: string; kind: string; time: string; ref?: string; at?: number; }
 export interface ApiWallet { balance: number; txns: ApiWalletTxn[]; }
 export interface AuthResult { token: string; user: ApiUser; }
 
