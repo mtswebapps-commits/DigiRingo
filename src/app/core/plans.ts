@@ -85,7 +85,7 @@ export const BUNDLES: Bundle[] = [
 /** Flat monthly rental for EXTRA numbers on a plan (beyond the free one). */
 export const NUMBER_RENTAL: Record<NumberKind, number> = {
   local: retailPrice(1.0),
-  tollfree: retailPrice(2.0),
+  tollfree: retailPrice(1.0),
 };
 
 /**
@@ -105,8 +105,8 @@ export interface UsageRate {
 
 /** Pay-as-you-go usage rates — Telnyx wholesale + markup, pooled across every number. */
 export const USAGE_RATES: UsageRate[] = [
-  { key: "voice", label: "Voice — in & out", price: retailPrice(0.006, 3), unit: "/min" },
-  { key: "sms_local", label: "Local SMS", price: retailPrice(0.006, 3), unit: "/msg" },
+  { key: "voice", label: "Calls — US & Canada", price: retailPrice(0.006, 3), unit: "/min" },
+  { key: "sms_local", label: "SMS — US & Canada", price: retailPrice(0.006, 3), unit: "/msg" },
   { key: "sms_tollfree", label: "Toll-free SMS", price: retailPrice(0.008, 3), unit: "/msg" },
   { key: "sms_shortcode", label: "Short-code SMS", price: retailPrice(0.01, 3), unit: "/msg" },
   { key: "mms_out", label: "MMS — outbound", price: retailPrice(0.018, 3), unit: "/msg" },

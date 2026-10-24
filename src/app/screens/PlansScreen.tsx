@@ -48,7 +48,8 @@ export function PlansScreen({ onBack, onTopUp }: Props) {
             <span style={{ color: C.text, fontSize: 15, fontWeight: 800 }}>Usage rates</span>
           </div>
           <p style={{ color: C.muted, fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
-            Charged per use from your wallet balance. All rates include markup on wholesale costs.
+            Charged per use from your wallet balance. US &amp; Canada rates below; international calls and texts
+            are billed at the carrier's actual rate + 150%.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             {rates.map((r, i) => (

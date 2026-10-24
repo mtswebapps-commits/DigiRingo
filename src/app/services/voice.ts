@@ -134,10 +134,15 @@ function clearNativeCallNotification(): void {
 // (countdown + auto-cut when the pool runs dry).
 const API_ORIGIN_BASE = API_BASE.replace(/\/api\/telnyx$/, "");
 
-async function fetchRemaining(): Promise<{ remainingSec: number; allowed: boolean } | null> {
+// The number whose rate the call is priced at: the dialled number, or — for an
+// incoming call — our own number (the server prices by destination country).
+const rateTarget = (s: CallSnapshot | null) =>
+  !s ? "" : s.direction === "inbound" ? (s.callerNumber || "") : s.contact;
+
+async function fetchRemaining(to = ""): Promise<{ remainingSec: number; allowed: boolean } | null> {
   try {
     const t = getToken();
-    const r = await fetch(`${API_ORIGIN_BASE}/api/voice/remaining`, {
+    const r = await fetch(`${API_ORIGIN_BASE}/api/voice/remaining?to=${encodeURIComponent(to)}`, {
       headers: t ? { Authorization: `Bearer ${t}` } : {},
     });
     if (!r.ok) return null; // fail-open: never block calling on a server blip
@@ -151,14 +156,17 @@ async function sendHeartbeat(callId: string, ended = false): Promise<{ remaining
     const r = await fetch(`${API_ORIGIN_BASE}/api/voice/heartbeat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) },
-      body: JSON.stringify({ callId, phase: ended ? "ended" : "active" }),
+      body: JSON.stringify({
+        callId, phase: ended ? "ended" : "active",
+        to: rateTarget(snap), dir: snap?.direction === "inbound" ? "in" : "out",
+      }),
     });
     if (!r.ok) return null;
     return await r.json();
   } catch { return null; }
 }
 
-const OUT_OF_TIME_MSG = "Plan minutes used up — top up your wallet or upgrade to keep calling.";
+const OUT_OF_TIME_MSG = "Not enough balance for this call — top up your wallet or upgrade to keep calling.";
 
 function startHeartbeat() {
   if (beatTimer || !live) return;
@@ -387,7 +395,7 @@ export async function startCall(destination: string, callerNumber: string | null
 
   // Gate BEFORE dialing: no talk-time budget left → don't place the call.
   if (live) {
-    const rem = await fetchRemaining();
+    const rem = await fetchRemaining(destination);
     if (rem && !rem.allowed) {
       endCall();
       emit({ phase: "failed", error: OUT_OF_TIME_MSG });

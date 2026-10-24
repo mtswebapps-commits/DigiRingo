@@ -16,6 +16,7 @@
 import mysql from "mysql2/promise";
 import { randomBytes, scryptSync, timingSafeEqual, createHmac, createHash } from "node:crypto";
 import { PAYG_RELOAD, OVERFLOW_RATES, NUMBER_RENTAL, bundleFor } from "./plans.mjs";
+import { retailOf, isDomestic, rateKey, defaultWholesale } from "./usage-rates.mjs";
 import { chargeOffSession, stripeConfigured } from "./stripe.mjs";
 import { chargeOffSession as paypalChargeOffSession, paypalConfigured } from "./paypal.mjs";
 
@@ -413,6 +414,8 @@ export async function creditWallet(uid, amount, label = "Wallet top-up", ref = "
   } finally {
     conn.release();
   }
+  // Collect any usage still owed from when the wallet ran dry (never reloads).
+  await settleOwed(uid, "", { reload: false }).catch((e) => console.error("settleOwed:", e.message));
   return getWallet(uid);
 }
 
@@ -801,13 +804,25 @@ export async function listNumbers(uid) {
 
 /** Record a provisioned number against the user (idempotent on the E.164).
  *  The monthly rental renews 30 days out (see renewDueNumbers). */
-export async function provisionNumber(uid, { e164, kind = "local", telnyxId = "", free = false }) {
+// Telnyx's monthly cost for each number (wholesale) — renewals bill this + markup.
+let numberCostColReady = false;
+async function ensureNumberCostColumn() {
+  if (numberCostColReady) return;
+  try { await pool.query("ALTER TABLE numbers ADD COLUMN monthly_cost DECIMAL(10,4) NULL DEFAULT NULL"); }
+  catch (e) { if (e?.errno !== 1060) throw e; }
+  numberCostColReady = true;
+}
+
+export async function provisionNumber(uid, { e164, kind = "local", telnyxId = "", free = false, monthlyCost = null }) {
+  await ensureNumberCostColumn();
   const renewsAt = Date.now() + 30 * 24 * 3600 * 1000;
+  const cost = Number(monthlyCost) > 0 ? Number(monthlyCost) : null;
   await pool.query(
-    `INSERT INTO numbers (user_id, e164, kind, telnyx_id, free, status, renews_at) VALUES (?, ?, ?, ?, ?, 'active', ?)
+    `INSERT INTO numbers (user_id, e164, kind, telnyx_id, free, status, renews_at, monthly_cost) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
        ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), kind = VALUES(kind),
-         telnyx_id = VALUES(telnyx_id), free = VALUES(free), status = 'active', renews_at = VALUES(renews_at)`,
-    [uid, String(e164), kind === "tollfree" ? "tollfree" : "local", String(telnyxId || ""), free ? 1 : 0, renewsAt]
+         telnyx_id = VALUES(telnyx_id), free = VALUES(free), status = 'active', renews_at = VALUES(renews_at),
+         monthly_cost = VALUES(monthly_cost)`,
+    [uid, String(e164), kind === "tollfree" ? "tollfree" : "local", String(telnyxId || ""), free ? 1 : 0, renewsAt, cost]
   );
 }
 
@@ -842,7 +857,8 @@ export async function releaseNumber(uid, e164, by = "user") {
  * disappears from the app and stops receiving calls until the user pays
  * (support can reactivate).
  */
-export async function renewDueNumbers() {
+export async function renewDueNumbers({ resolveMonthlyCost } = {}) {
+  await ensureNumberCostColumn();
   const [due] = await pool.query(
     "SELECT * FROM numbers WHERE status = 'active' AND renews_at > 0 AND renews_at < ?",
     [Date.now()]
@@ -851,7 +867,16 @@ export async function renewDueNumbers() {
   for (const n of due) {
     try {
       const nextAt = Number(n.renews_at) + 30 * 24 * 3600 * 1000;
-      const amount = NUMBER_RENTAL[n.kind] ?? NUMBER_RENTAL.local;
+      // Telnyx's monthly cost for THIS number + markup. Numbers bought before the
+      // cost was stored get it looked up once (by country + type) and saved.
+      let cost = Number(n.monthly_cost) || 0;
+      if (!(cost > 0) && resolveMonthlyCost) {
+        cost = Number(await resolveMonthlyCost(n.e164, n.kind).catch(() => 0)) || 0;
+        if (cost > 0) await pool.query("UPDATE numbers SET monthly_cost = ? WHERE id = ?", [cost, n.id]);
+      }
+      const amount = cost > 0
+        ? Math.round(retailOf(cost) * 100) / 100
+        : (NUMBER_RENTAL[n.kind] ?? NUMBER_RENTAL.local);
       const label = `Number rental — ${n.e164}`;
       let paid = await chargeSavedCard(n.user_id, amount, label);
       if (!paid) paid = await debitIfEnough(n.user_id, amount, label);
@@ -1127,42 +1152,245 @@ export async function applyUsage(uid, { minutes = 0, sms = 0 } = {}) {
   return { hasPlan: true, nearLimit, overLimit, walletShort, cost };
 }
 
-/** PRE-SEND gate: can this account afford to send one SMS right now? True if the
- *  plan's SMS pool still has room, or the wallet (or a saved card that can
- *  auto-reload) can cover the overflow rate. Without this a $0 account with an
- *  exhausted plan could send unlimited SMS that the platform pays Telnyx for. */
-export async function canSendSms(uid) {
-  const sub = await getActiveSubRow(uid);
-  if (sub && Number(sub.sms_used) < Number(sub.sms_included)) return true;
-  const [u] = await pool.query("SELECT wallet_balance FROM users WHERE id = ?", [uid]);
-  if (Number(u[0]?.wallet_balance ?? 0) >= OVERFLOW_RATES.sms) return true;
-  const card = await getBillingProfile(uid);
-  return !!(card && card.last4);
+/* ------------------------------------------- Telnyx-cost usage billing (ledger)
+ * Calls and SMS are billed from Telnyx's own detail records (see
+ * usage-billing.mjs): what Telnyx charged us + MARKUP_PCT. Every billed record
+ * is one usage_charges row (unique on its Telnyx id, so nothing is billed
+ * twice). The wallet holds whole cents, so sub-cent amounts accumulate in
+ * users.usage_owed and are debited once they reach a cent; if the wallet runs
+ * dry the remainder stays owed and is collected on the next top-up.
+ *
+ * Plans: US/Canada usage draws from the plan's pool first (minutes per call,
+ * SMS parts per outbound text) — anything past the pool and ALL international
+ * usage is billed at cost + markup. */
+let usageTablesReady = false;
+async function ensureUsageTables() {
+  if (usageTablesReady) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS usage_charges (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    user_id    INT NOT NULL,
+    kind       VARCHAR(8) NOT NULL,
+    leg        VARCHAR(8) NOT NULL DEFAULT '',
+    ref        VARCHAR(96) NOT NULL,
+    session    VARCHAR(96) NOT NULL DEFAULT '',
+    rate_key   VARCHAR(8) NOT NULL DEFAULT '',
+    units      DECIMAL(10,3) NOT NULL DEFAULT 0,
+    wholesale  DECIMAL(12,5) NOT NULL DEFAULT 0,
+    retail     DECIMAL(12,5) NOT NULL DEFAULT 0,
+    plan_units DECIMAL(10,3) NOT NULL DEFAULT 0,
+    detail     VARCHAR(160) NOT NULL DEFAULT '',
+    created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_usage_ref (ref),
+    KEY idx_usage_user (user_id),
+    KEY idx_usage_session (session),
+    KEY idx_usage_rate (kind, leg, rate_key)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS billing_state (
+    k VARCHAR(32) PRIMARY KEY,
+    v VARCHAR(64) NOT NULL DEFAULT ''
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  try { await pool.query("ALTER TABLE users ADD COLUMN usage_owed DECIMAL(12,5) NOT NULL DEFAULT 0"); }
+  catch (e) { if (e?.errno !== 1060) throw e; }
+  usageTablesReady = true;
+}
+
+export async function getBillingState(k) {
+  await ensureUsageTables();
+  const [rows] = await pool.query("SELECT v FROM billing_state WHERE k = ?", [k]);
+  return rows[0]?.v ?? null;
+}
+export async function setBillingState(k, v) {
+  await ensureUsageTables();
+  await pool.query("INSERT INTO billing_state (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)", [k, String(v)]);
+}
+
+/** Which of these Telnyx record ids are already in the ledger. */
+export async function knownUsageRefs(refs) {
+  await ensureUsageTables();
+  const list = [...new Set(refs.filter(Boolean))];
+  const known = new Set();
+  for (let i = 0; i < list.length; i += 500) {
+    const [rows] = await pool.query("SELECT ref FROM usage_charges WHERE ref IN (?)", [list.slice(i, i + 500)]);
+    for (const r of rows) known.add(r.ref);
+  }
+  return known;
+}
+
+/** The user an earlier leg of this Telnyx call session was billed to. */
+export async function usageSessionOwner(session) {
+  if (!session) return null;
+  await ensureUsageTables();
+  const [rows] = await pool.query("SELECT user_id FROM usage_charges WHERE session = ? AND user_id > 0 LIMIT 1", [session]);
+  return rows[0] ? Number(rows[0].user_id) : null;
 }
 
 /**
- * How many more seconds of talk-time this account can AFFORD right now, pooled
- * across every concurrent call/profile: plan minutes left + wallet-funded
- * overflow minutes (at the PAYG voice rate). `liveSec` is the elapsed time of
- * calls currently in progress (all browsers/profiles), so two simultaneous
- * calls drain the same pool. Used to gate new calls and to cut running ones.
+ * Bill one Telnyx record. `plan`: "count" = draws `units` from the plan pool
+ * (the main leg of a call / an outbound text), "ride" = free while the pool
+ * isn't exhausted (extra legs of the same call, inbound texts), "none" = always
+ * billed. Plans only ever apply to domestic (US/Canada) usage.
+ * Returns { billed, retail } — billed=false when the record was already in.
  */
-export async function voiceRemainingSec(uid, liveSec = 0) {
-  const sub = await getActiveSubRow(uid);
-  const planSec = sub
-    ? Math.max(0, (Number(sub.minutes_included) - Number(sub.minutes_used))) * 60
-    : 0;
-  const [u] = await pool.query("SELECT wallet_balance FROM users WHERE id = ?", [uid]);
-  const balance = Number(u[0]?.wallet_balance ?? 0);
-  const walletSec = Math.max(0, Math.floor((balance / OVERFLOW_RATES.voice) * 60));
-  // A saved card extends the budget by one auto-reload — the overflow engine
-  // recharges the wallet from it, so don't cut callers who CAN pay.
-  let cardSec = 0;
+export async function recordUsage({ uid, kind, leg = "", ref, session = "", rateKey: key = "", units = 0, wholesale = 0, domestic = false, plan = "none", detail = "" }) {
+  await ensureUsageTables();
+  uid = Number(uid) || 0;
+  wholesale = Math.max(0, Number(wholesale) || 0);
+  units = Math.max(0, Number(units) || 0);
+  const conn = await pool.getConnection();
+  let retail = 0;
+  try {
+    await conn.beginTransaction();
+    const [ins] = await conn.query(
+      `INSERT IGNORE INTO usage_charges (user_id, kind, leg, ref, session, rate_key, units, wholesale, detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uid, kind, leg, String(ref), String(session || ""), String(key || ""), units, wholesale, String(detail).slice(0, 160)]
+    );
+    if (!ins.affectedRows) { await conn.rollback(); return { billed: false, retail: 0 }; }
+    if (!uid || !(wholesale > 0)) { await conn.commit(); return { billed: true, retail: 0 }; }
+
+    let payFrac = 1, planUnits = 0;
+    if (domestic && plan !== "none") {
+      const [subs] = await conn.query(
+        "SELECT * FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1 FOR UPDATE", [uid]
+      );
+      const sub = subs[0];
+      if (sub) {
+        const col = kind === "sms" ? "sms" : "minutes";
+        const used = Number(sub[`${col}_used`]), inc = Number(sub[`${col}_included`]);
+        if (plan === "count" && units > 0) {
+          planUnits = Math.min(units, Math.max(0, inc - used));
+          payFrac = (units - planUnits) / units;
+          await conn.query(`UPDATE subscriptions SET ${col}_used = ${col}_used + ? WHERE id = ?`, [Math.ceil(units), sub.id]);
+        } else if (plan === "ride" && used <= inc) {
+          payFrac = 0;
+        }
+      }
+    }
+    retail = Math.round(retailOf(wholesale) * payFrac * 100000) / 100000;
+    await conn.query("UPDATE usage_charges SET retail = ?, plan_units = ? WHERE ref = ?", [retail, planUnits, String(ref)]);
+    if (retail > 0) await conn.query("UPDATE users SET usage_owed = usage_owed + ? WHERE id = ?", [retail, uid]);
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback().catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+  if (retail > 0) await settleOwed(uid, detail).catch((e) => console.error("settleOwed:", e.message));
+  return { billed: true, retail };
+}
+
+/**
+ * Move whole cents of what the user owes for usage out of the wallet. Takes what
+ * the wallet can cover; with a saved card it may auto-reload once (reload=false
+ * when called after a credit, so a reload can never trigger another reload).
+ */
+export async function settleOwed(uid, label = "", { reload = true } = {}) {
+  await ensureUsageTables();
+  const conn = await pool.getConnection();
+  let short = false;
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query("SELECT wallet_balance, usage_owed FROM users WHERE id = ? FOR UPDATE", [uid]);
+    const owed = Number(rows[0]?.usage_owed || 0);
+    const wallet = Number(rows[0]?.wallet_balance || 0);
+    const due = Math.floor(owed * 100 + 1e-6) / 100;
+    const take = Math.min(due, Math.floor(wallet * 100 + 1e-6) / 100);
+    if (take >= 0.01) {
+      await conn.query("UPDATE users SET wallet_balance = wallet_balance - ?, usage_owed = usage_owed - ? WHERE id = ?", [take, take, uid]);
+      const text = label && take <= 0.05 ? `Usage — ${label}` : "Calls & SMS usage";
+      await conn.query("INSERT INTO wallet_transactions (user_id, amount, label, kind) VALUES (?, ?, ?, 'charge')", [uid, -take, text.slice(0, 190)]);
+    }
+    short = due - take >= 0.01;
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback().catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+  if (short && reload) {
+    try { await reloadWalletFromCard(uid); } catch { return; } // no card / declined → stays owed
+    await settleOwed(uid, label, { reload: false });
+  }
+}
+
+/** Money the account can still spend on usage: wallet − owed (+ one card reload). */
+async function usageCredit(uid) {
+  await ensureUsageTables();
+  const [u] = await pool.query("SELECT wallet_balance, usage_owed FROM users WHERE id = ?", [uid]);
+  let credit = Number(u[0]?.wallet_balance ?? 0) - Number(u[0]?.usage_owed ?? 0);
   try {
     const bp = await getBillingProfile(uid);
-    if (bp?.paymentMethodId) cardSec = Math.floor((PAYG_RELOAD / OVERFLOW_RATES.voice) * 60);
+    if (bp?.paymentMethodId) credit += PAYG_RELOAD;
   } catch { /* card check is best-effort */ }
-  return Math.max(0, planSec + walletSec + cardSec - Math.max(0, Math.floor(liveSec)));
+  return credit;
+}
+
+// What Telnyx has actually been charging per unit for a destination bucket
+// (last 60 days), cached briefly. Falls back to the conservative defaults.
+const rateCache = new Map(); // "kind:leg:key" → { rate, at }
+export async function usageRate(kind, leg, key) {
+  const k = `${kind}:${leg}:${key}`;
+  const hit = rateCache.get(k);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.rate;
+  let rate = defaultWholesale(kind, key);
+  try {
+    await ensureUsageTables();
+    const [rows] = await pool.query(
+      `SELECT SUM(wholesale) AS w, SUM(units) AS u FROM usage_charges
+        WHERE kind = ? AND leg = ? AND rate_key = ? AND units > 0 AND wholesale > 0
+          AND created_at > NOW() - INTERVAL 60 DAY`, [kind, leg, key]
+    );
+    const w = Number(rows[0]?.w || 0), n = Number(rows[0]?.u || 0);
+    if (w > 0 && n > 0) rate = w / n;
+  } catch { /* keep the default */ }
+  rateCache.set(k, { rate, at: Date.now() });
+  return rate;
+}
+
+/** PRE-SEND gate: can this account afford this SMS right now? True when a
+ *  domestic text still fits the plan's SMS pool, or the wallet (or a saved card
+ *  that can auto-reload) covers the destination's rate. */
+export async function canSendSms(uid, { to = "", parts = 1 } = {}) {
+  parts = Math.max(1, Number(parts) || 1);
+  const domestic = !to || isDomestic(to);
+  const sub = await getActiveSubRow(uid);
+  if (domestic && sub && Number(sub.sms_used) + parts <= Number(sub.sms_included)) return true;
+  const price = retailOf(await usageRate("sms", "out", rateKey(to) || "1")) * parts;
+  return (await usageCredit(uid)) >= price;
+}
+
+/** Estimated customer price per SECOND of a call — outbound to `to`, or inbound
+ *  on the user's number `to` (the number's leg plus the in-app WebRTC leg). */
+async function callPricePerSec({ to = "", inbound = false } = {}) {
+  const key = rateKey(to) || "1";
+  const perMin = inbound
+    ? (await usageRate("voice", "in", key)) + (await usageRate("voice", "app", "1"))
+    : await usageRate("voice", "out", key);
+  return retailOf(perMin) / 60;
+}
+
+/**
+ * How many more seconds of talk-time this account can AFFORD for a call to/from
+ * `to`, pooled across every call in progress (`live`: [{ sec, to, inbound }] —
+ * a plain number is still accepted as total live seconds). Domestic calls draw
+ * plan minutes first; the rest is wallet credit at the destination's rate.
+ */
+export async function voiceRemainingSec(uid, live = [], { to = "", inbound = false } = {}) {
+  const calls = Array.isArray(live) ? live : [{ sec: Number(live) || 0, to: "", inbound: false }];
+  const sub = await getActiveSubRow(uid);
+  let planSec = sub ? Math.max(0, Number(sub.minutes_included) - Number(sub.minutes_used)) * 60 : 0;
+  let credit = await usageCredit(uid);
+  for (const c of calls) {
+    let sec = Math.max(0, Math.floor(Number(c.sec) || 0));
+    if (!c.to || isDomestic(c.to)) { const use = Math.min(planSec, sec); planSec -= use; sec -= use; }
+    if (sec > 0) credit -= sec * (await callPricePerSec(c));
+  }
+  const domestic = !to || isDomestic(to);
+  const perSec = await callPricePerSec({ to, inbound });
+  const walletSec = perSec > 0 ? Math.floor(Math.max(0, credit) / perSec) : 0;
+  return Math.max(0, (domestic ? planSec : 0) + walletSec);
 }
 
 /**

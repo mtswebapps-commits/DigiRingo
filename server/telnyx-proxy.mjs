@@ -28,6 +28,8 @@ import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHmac, timingSafeEqual, createPublicKey, randomBytes, verify as edVerify } from "node:crypto";
 import { numberPrice, bundleCharge, bundleFor, BUNDLES, MARKUP_PCT, OVERFLOW_RATES } from "./plans.mjs";
+import { smsParts } from "./usage-rates.mjs";
+import { createUsageSync } from "./usage-billing.mjs";
 const markup = (cost, decimals = 3) => Math.round(cost * (1 + MARKUP_PCT / 100) * 10 ** decimals) / 10 ** decimals;
 import { sendPush, vapidPublicKey, webPushConfigured } from "./webpush.mjs";
 import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify, publishableKey as stripePubKey, stripeConfigured, createCustomer as stripeCreateCustomer, createSetupSession as stripeSetupSession, cardFromIntent as stripeCardFromIntent } from "./stripe.mjs";
@@ -736,7 +738,7 @@ async function inboundTeXML({ stage, to, from }) {
   // the call when the budget runs out — even mid-conversation.
   let capSec = 14400; // Telnyx max 4h
   try {
-    const rem = await db.voiceRemainingSec(owner.userId, liveElapsedSec(owner.userId));
+    const rem = await db.voiceRemainingSec(owner.userId, liveCallList(owner.userId), { to, inbound: true });
     if (rem < 30) return voicemailTeXML(owner, to, from);
     capSec = Math.min(capSec, rem);
   } catch { /* budget check is best-effort — never kill inbound on a DB blip */ }
@@ -881,7 +883,9 @@ async function notifyIncomingSms(userId, from, text) {
 
 /* ---------------------------------------------------- live-call usage guard */
 // In-memory registry of calls in progress, pooled per user across every
-// browser/profile: uid → Map(callId → {startedAt, lastBeat}). Browsers report
+// browser/profile: uid → Map(callId → {startedAt, lastBeat, to, inbound}). `to`
+// is the number whose rate applies (dialled number, or our number for an
+// incoming call); older apps don't send it → treated as US/Canada. Browsers report
 // via POST /api/voice/heartbeat every ~15s; entries that miss 2 beats are
 // pruned. Powers the pre-call gate, the in-call countdown and the auto-cut.
 const liveCalls = new Map();
@@ -901,19 +905,50 @@ function liveElapsedSec(uid) {
   return Math.floor(sec);
 }
 
-function beatCall(uid, callId, ended = false) {
+function beatCall(uid, callId, ended = false, { to = "", inbound = false } = {}) {
   let calls = liveCalls.get(uid);
   if (ended) { if (calls) { calls.delete(callId); if (!calls.size) liveCalls.delete(uid); } return; }
   if (!calls) { calls = new Map(); liveCalls.set(uid, calls); }
   const now = Date.now();
   const cur = calls.get(callId);
-  if (cur) cur.lastBeat = now;
-  else calls.set(callId, { startedAt: now, lastBeat: now });
+  if (cur) { cur.lastBeat = now; if (to) { cur.to = to; cur.inbound = inbound; } }
+  else calls.set(callId, { startedAt: now, lastBeat: now, to, inbound });
 }
 
-/** Remaining affordable talk-time for a user, minus what's burning right now. */
-async function voiceRemaining(uid) {
-  const remainingSec = await db.voiceRemainingSec(uid, liveElapsedSec(uid));
+/** The user's live calls as [{ sec, to, inbound }] for the rate-aware budget. */
+function liveCallList(uid) {
+  liveElapsedSec(uid); // prunes stale entries
+  const calls = liveCalls.get(uid);
+  if (!calls) return [];
+  const now = Date.now();
+  return [...calls.values()].map((c) => ({ sec: (now - c.startedAt) / 1000, to: c.to || "", inbound: !!c.inbound }));
+}
+
+const e164Param = (v) => { const d = String(v || "").replace(/[^\d+]/g, ""); return /^\+\d{6,15}$/.test(d) ? d : ""; };
+
+/**
+ * Telnyx's monthly cost for an owned number (country + line type), for renewals
+ * of numbers bought before the per-number cost was stored. Reads the price
+ * Telnyx quotes for an available number of the same country and type.
+ */
+const monthlyCostCache = new Map();
+async function numberMonthlyCost(e164) {
+  const r0 = await telnyxFetch(`/phone_numbers?filter[phone_number]=${encodeURIComponent(e164)}`);
+  const pn = (await r0.json().catch(() => ({})))?.data?.[0];
+  const cc = pn?.country_iso_alpha2, type = pn?.phone_number_type;
+  if (!cc || !type) return 0;
+  const k = `${cc}:${type}`;
+  const hit = monthlyCostCache.get(k);
+  if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.cost;
+  const r = await telnyxFetch(`/available_phone_numbers?filter[country_code]=${cc}&filter[phone_number_type]=${encodeURIComponent(type)}&filter[limit]=1`);
+  const cost = parseFloat((await r.json().catch(() => ({})))?.data?.[0]?.cost_information?.monthly_cost) || 0;
+  if (cost > 0) monthlyCostCache.set(k, { cost, at: Date.now() });
+  return cost;
+}
+
+/** Remaining affordable talk-time for a call to/from `to`, minus what's burning right now. */
+async function voiceRemaining(uid, { to = "", inbound = false } = {}) {
+  const remainingSec = await db.voiceRemainingSec(uid, liveCallList(uid), { to, inbound });
   return { remainingSec, allowed: remainingSec > 0 };
 }
 
@@ -986,7 +1021,7 @@ async function describeRequirements(sub) {
 
 /** Place a Telnyx number order + record ownership + log it. Throws on failure.
  *  Shared by the wallet buy route and the Stripe webhook (card fulfilment). */
-async function orderTelnyxNumber(uid, phoneNumber, kind = "local", { free = false, amount = 0 } = {}) {
+async function orderTelnyxNumber(uid, phoneNumber, kind = "local", { free = false, amount = 0, monthlyCost = null } = {}) {
   // Make sure the messaging profile can deliver inbound SMS for this new number.
   await ensureMessagingProfile().catch(() => {});
   const voiceConn = await getTexmlAppId().catch(() =>
@@ -999,7 +1034,7 @@ async function orderTelnyxNumber(uid, phoneNumber, kind = "local", { free = fals
   const j = await r.json();
   if (!r.ok) throw new Error(j?.errors?.[0]?.detail || "Number order failed");
   const telnyxId = j?.data?.phone_numbers?.[0]?.id || "";
-  await db.provisionNumber(uid, { e164: phoneNumber, kind, telnyxId, free });
+  await db.provisionNumber(uid, { e164: phoneNumber, kind, telnyxId, free, monthlyCost });
   const isUS = phoneNumber.startsWith("+1");
   const needsDocs = !isUS && j?.data?.requirements_met === false;
   const trustNote = isUS ? " Register it in Trust center to send SMS."
@@ -1317,8 +1352,7 @@ const handleRequest = async (req, res) => {
       if (stage === "vm" && own && (dialStatus === "completed" || dialStatus === "answered")) {
         const durSec = Number(p.get("DialCallDuration") || 0) || 0;
         if (durSec > 0) {
-          const mins = Math.ceil(durSec / 60);
-          db.applyUsage(own.userId, { minutes: mins }).catch((e) => console.error("applyUsage(fwd):", e.message));
+          // Billed from Telnyx's detail records (usage-billing.mjs); log only.
           db.logCall(own.userId, { contact: from, direction: "incoming", status: "Forwarded call", duration: `${Math.floor(durSec / 60)}:${String(durSec % 60).padStart(2, "0")}`, via: to }).catch(() => {});
         }
       }
@@ -2225,6 +2259,7 @@ const handleRequest = async (req, res) => {
     // If the lookup fails (number already reserved), use the client-provided
     // retail price (which came from the same Telnyx API at search time).
     let wholesaleCost = kind === "tollfree" ? 2.0 : 1.0;
+    let monthlyCost = null; // Telnyx's monthly cost for this exact number (renewals)
     let lookedUp = false;
     try {
       const lookupUrl = `https://api.telnyx.com/v2/available_phone_numbers?filter[phone_number]=${encodeURIComponent(phoneNumber)}&filter[limit]=1`;
@@ -2233,8 +2268,10 @@ const handleRequest = async (req, res) => {
         const ld = await lr.json();
         const hit = ld?.data?.[0];
         // Telnyx ignores the exact-number filter for some countries and returns an unrelated number.
-        const mc = hit?.phone_number === phoneNumber ? hit?.cost_information?.monthly_cost : null;
-        if (mc) { wholesaleCost = parseFloat(mc); lookedUp = true; }
+        const ci = hit?.phone_number === phoneNumber ? hit?.cost_information : null;
+        const mc = parseFloat(ci?.monthly_cost), up = parseFloat(ci?.upfront_cost);
+        // First charge = Telnyx's upfront cost (first month, plus any setup) when higher.
+        if (mc > 0) { monthlyCost = mc; wholesaleCost = Math.max(mc, up > 0 ? up : 0); lookedUp = true; }
       }
     } catch { /* fall back */ }
     const amount = lookedUp ? markup(wholesaleCost, 2) : Math.max(clientPrice, markup(wholesaleCost, 2));
@@ -2247,7 +2284,7 @@ const handleRequest = async (req, res) => {
 
     // 2) Place the Telnyx order
     try {
-      const order = await orderTelnyxNumber(uid, phoneNumber, kind, { free, amount });
+      const order = await orderTelnyxNumber(uid, phoneNumber, kind, { free, amount, monthlyCost });
       const wallet = paid.wallet;
       return send(res, 200, { ok: true, order, wallet, free });
     } catch (e) {
@@ -2361,7 +2398,8 @@ const handleRequest = async (req, res) => {
     if (!db) return send(res, 503, { error: "Database not configured" });
     const uid = db.verifyToken(bearer(req));
     if (!uid) return send(res, 401, { error: "Not authenticated" });
-    try { return send(res, 200, await voiceRemaining(uid)); }
+    const q = new URL(req.url, "http://x").searchParams;
+    try { return send(res, 200, await voiceRemaining(uid, { to: e164Param(q.get("to")), inbound: q.get("dir") === "in" })); }
     catch (e) { return send(res, 500, { error: e.message }); }
   }
   if (req.url?.startsWith("/api/voice/heartbeat") && req.method === "POST") {
@@ -2373,8 +2411,9 @@ const handleRequest = async (req, res) => {
     const callId = String(d.callId || "");
     if (!callId) return send(res, 400, { error: "callId required" });
     try {
-      beatCall(uid, callId, d.phase === "ended");
-      return send(res, 200, await voiceRemaining(uid));
+      const callTo = e164Param(d.to), inbound = d.dir === "in";
+      beatCall(uid, callId, d.phase === "ended", { to: callTo, inbound });
+      return send(res, 200, await voiceRemaining(uid, { to: callTo, inbound }));
     } catch (e) { return send(res, 500, { error: e.message }); }
   }
   // One device answered an inbound call → immediately tell the user's OTHER
@@ -2404,12 +2443,9 @@ const handleRequest = async (req, res) => {
       let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
       try {
         const r = await db.logCall(uid, { contact: d.contact, direction: d.direction, status: d.status, duration: d.duration, via: d.via });
-        // Meter connected-call minutes against the plan (overflow billed to wallet
-        // by applyUsage). Missed/failed calls carry no duration → nothing metered.
-        const mins = callMinutes(d.duration);
-        let usage = null;
-        if (mins > 0) { try { usage = await db.applyUsage(uid, { minutes: mins }); } catch (e) { console.error("applyUsage(call):", e.message); } }
-        return send(res, 200, { ok: true, id: r.id, minutes: mins, usage });
+        // History only — the call itself is billed from Telnyx's detail records
+        // (usage-billing.mjs) at its real cost, so nothing is metered here.
+        return send(res, 200, { ok: true, id: r.id, minutes: callMinutes(d.duration), usage: null });
       } catch (e) { return send(res, 500, { error: e.message }); }
     }
     return send(res, 405, { error: "Method not allowed" });
@@ -2649,7 +2685,9 @@ const handleRequest = async (req, res) => {
   // could send unlimited SMS that the platform pays Telnyx for. Fail-open on a DB
   // blip so a transient error never blocks a paying user.
   if (req.method === "POST" && path.startsWith("/messages") && tnUid && db) {
-    const affordable = await db.canSendSms(tnUid).catch(() => true);
+    let gate = {};
+    try { const m = JSON.parse(body || "{}"); gate = { to: m.to, parts: smsParts(m.text) }; } catch { /* ignore */ }
+    const affordable = await db.canSendSms(tnUid, gate).catch(() => true);
     if (!affordable) return send(res, 402, { errors: [{ detail: "Out of SMS credit — top up your wallet or upgrade your plan to send messages." }] });
   }
 
@@ -2697,9 +2735,6 @@ const handleRequest = async (req, res) => {
 
     // record outbound sends so they appear in the inbox immediately
     if (req.method === "POST" && path.startsWith("/messages") && r.ok) {
-      // Telnyx bills per segment (a long text = several parts), so meter the same.
-      let parts = 1;
-      try { parts = Math.min(10, Math.max(1, Math.round(Number(JSON.parse(text).data?.parts) || 1))); } catch { /* keep 1 */ }
       try {
         const j = JSON.parse(text);
         const d = j.data ?? {};
@@ -2712,9 +2747,7 @@ const handleRequest = async (req, res) => {
           telnyxId: d.id,
         });
       } catch { /* ignore record errors */ }
-      // Meter the send against the plan's SMS pool (overflow billed to wallet).
-      // Best-effort — never blocks or fails the send.
-      if (db && tnUid) db.applyUsage(tnUid, { sms: parts }).catch(() => {});
+      // Billing: from Telnyx's messaging records at the real cost (usage-billing.mjs).
     }
     send(res, r.status, text || "{}");
   } catch (e) {
@@ -2749,6 +2782,9 @@ createServer((req, res) => {
       if (telnyxKey()) ensureMessagingProfile().catch((e) => console.error("ensureMessagingProfile:", e.message));
     });
 
+  // Usage billing: calls & SMS at Telnyx's real cost + markup, every few minutes.
+  if (db?.recordUsage && telnyxKey()) createUsageSync({ db, telnyxFetch }).start();
+
   // Auto-renew engine: charge due bundle subscriptions from the wallet, at boot
   // and hourly thereafter. Lazy renewal on access (getSubscription) covers the
   // gaps between ticks for active users.
@@ -2756,7 +2792,7 @@ createServer((req, res) => {
     const runRenewals = () => Promise.allSettled([
       db.renewDueSubscriptions()
         .then((n) => { if (n) console.log(`↻ auto-renewed ${n} subscription(s)`); }),
-      db.renewDueNumbers?.()
+      db.renewDueNumbers?.({ resolveMonthlyCost: numberMonthlyCost })
         .then((n) => { if (n) console.log(`↻ auto-renewed ${n} number rental(s)`); }),
       db.renewDueTenDlc?.()
         .then((n) => { if (n) console.log(`↻ charged ${n} 10DLC campaign fee(s)`); }),

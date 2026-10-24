@@ -472,7 +472,7 @@ export function DashPricing({ onTopUp }: { onTopUp: () => void }) {
         </Panel>
 
         {/* Usage rates */}
-        <Panel title="Usage rates" sub="Charged per use from wallet">
+        <Panel title="Usage rates" sub="US & Canada · international = carrier rate + 150%">
           <div style={{ display: "flex", flexDirection: "column" }}>
             {rates.map((r, i) => (
               <div key={r.key} style={{

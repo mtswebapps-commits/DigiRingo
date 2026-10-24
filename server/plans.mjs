@@ -10,7 +10,7 @@ export const MARKUP_PCT = Number(process.env.MARKUP_PCT ?? 150);
 const markup = (cost, decimals = 3) => Math.round(cost * (1 + MARKUP_PCT / 100) * 10 ** decimals) / 10 ** decimals;
 
 /** Flat monthly rental — Telnyx wholesale + markup. */
-export const NUMBER_RENTAL = { local: markup(1.0, 2), tollfree: markup(2.0, 2) };
+export const NUMBER_RENTAL = { local: markup(1.0, 2), tollfree: markup(1.0, 2) };
 
 export const PAYG_RELOAD = 3.99;
 

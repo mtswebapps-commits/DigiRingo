@@ -36,8 +36,8 @@ export function refetchRates(): Promise<void> {
 export function liveUsageRates(): UsageRate[] {
   if (!_cached) return FALLBACK_USAGE;
   const labels: Record<string, { label: string; unit: string }> = {
-    voice: { label: "Voice — in & out", unit: "/min" },
-    sms_local: { label: "Local SMS", unit: "/msg" },
+    voice: { label: "Calls — US & Canada", unit: "/min" },
+    sms_local: { label: "SMS — US & Canada", unit: "/msg" },
     sms_tollfree: { label: "Toll-free SMS", unit: "/msg" },
     sms_shortcode: { label: "Short-code SMS", unit: "/msg" },
     mms_out: { label: "MMS — outbound", unit: "/msg" },

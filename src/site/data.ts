@@ -73,14 +73,16 @@ export const STEPS = [
 
 /** Flat monthly rental per number. */
 export const NUMBER_RENTAL = [
-  { type: "Local number", price: `$${retailPrice(1.0).toFixed(2)}`, unit: "/mo" },
-  { type: "Toll-free number", price: `$${retailPrice(2.0).toFixed(2)}`, unit: "/mo" },
+  { type: "US local number", price: `$${retailPrice(1.0).toFixed(2)}`, unit: "/mo" },
+  { type: "US toll-free number", price: `$${retailPrice(1.0).toFixed(2)}`, unit: "/mo" },
+  { type: "Other countries", price: "Carrier price + 150%", unit: "" },
 ];
 
 /** Pay-as-you-go usage rates — pooled across every number on the account. */
 export const USAGE_RATES = [
-  { item: "Voice — in & out", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/min" },
-  { item: "Local SMS", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/msg" },
+  { item: "Calls — US & Canada", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/min" },
+  { item: "International calls & SMS", price: "Carrier rate + 150%", unit: "" },
+  { item: "SMS — US & Canada", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/msg" },
   { item: "Toll-free SMS", price: `$${retailPrice(0.008, 3).toFixed(3)}`, unit: "/msg" },
   { item: "Short-code SMS", price: `$${retailPrice(0.01, 3).toFixed(3)}`, unit: "/msg" },
   { item: "MMS — outbound", price: `$${retailPrice(0.018, 3).toFixed(3)}`, unit: "/msg" },
@@ -102,7 +104,7 @@ export const FAQS = [
   },
   {
     q: "How does billing work?",
-    a: `DIGIRINGO is pure pay-as-you-go. Top up your wallet, rent a number ($${retailPrice(1.0).toFixed(2)}/mo local, $${retailPrice(2.0).toFixed(2)}/mo toll-free) and pay only for what you use — voice from $${retailPrice(0.006, 3).toFixed(3)}/min, SMS from $${retailPrice(0.006, 3).toFixed(3)}/msg, all drawn from your prepaid wallet. No plans, no commitments, no surprise bills.`,
+    a: `DIGIRINGO is pure pay-as-you-go. Top up your wallet, rent a number (from $${retailPrice(1.0).toFixed(2)}/mo in the US) and pay only for what you use — US & Canada calls from $${retailPrice(0.006, 3).toFixed(3)}/min and SMS from $${retailPrice(0.006, 3).toFixed(3)}/msg; other countries are billed at the carrier's actual rate + 150%, all drawn from your prepaid wallet. No plans, no commitments, no surprise bills.`,
   },
   {
     q: "How do I add credit?",
