@@ -97,6 +97,9 @@ export interface ApiOwnedNumber { id: string; e164: string; kind: NumberKind; te
 
 /** List the user's owned numbers + their plan's number-capacity. */
 export const apiGetNumbers = () => req<{ numbers: ApiOwnedNumber[]; capacity: ApiCapacity }>("/api/numbers");
+export interface ApiNumberCountry { iso: string; name: string; types: Array<"local" | "mobile" | "national" | "toll_free">; }
+/** Countries Telnyx sells numbers in, with the line types available in each. */
+export const apiNumberCountries = () => req<{ countries: ApiNumberCountry[] }>("/api/numbers/countries");
 
 export interface ApiCallLog { id: string; contact: string; direction: "outgoing" | "incoming" | "missed"; status: string; duration: string; via: string; time: string; }
 

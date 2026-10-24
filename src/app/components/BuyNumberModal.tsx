@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { X, ChevronDown, Check, Search, Loader2, Wallet } from "lucide-react";
 import { NUMBER_RENTAL } from "../core/plans";
+import { DIAL_CODES, flagOf } from "../core/countries";
+import { apiNumberCountries } from "../services/api";
+import type { AvailableNumber, NumberLineType } from "../store/AppStore";
 
 const C = {
   bg: "var(--dg-bg)", card: "var(--dg-card)", input: "var(--dg-input)", line: "var(--dg-line)",
@@ -10,24 +13,41 @@ const C = {
 
 const FALLBACK_PRICE = NUMBER_RENTAL.local;
 
-const COUNTRIES = [
-  { iso:"US", flag:"🇺🇸", name:"United States", code:"+1"  },
-  { iso:"GB", flag:"🇬🇧", name:"United Kingdom",code:"+44" },
-  { iso:"DE", flag:"🇩🇪", name:"Germany",       code:"+49" },
-  { iso:"FR", flag:"🇫🇷", name:"France",        code:"+33" },
-  { iso:"CA", flag:"🇨🇦", name:"Canada",        code:"+1"  },
-  { iso:"JP", flag:"🇯🇵", name:"Japan",         code:"+81" },
-  { iso:"AU", flag:"🇦🇺", name:"Australia",     code:"+61" },
-  { iso:"BR", flag:"🇧🇷", name:"Brazil",        code:"+55" },
+type NumType = NumberLineType;
+
+interface Country { iso: string; flag: string; name: string; code: string; types: NumType[] }
+
+const toCountry = (c: { iso: string; name: string; types: NumType[] }): Country =>
+  ({ iso: c.iso, name: c.name, types: c.types, flag: flagOf(c.iso), code: `+${DIAL_CODES[c.iso] ?? ""}` });
+
+// Shown until Telnyx's full coverage list loads (or if it can't be reached).
+const FALLBACK_COUNTRIES: Country[] = ([
+  { iso: "US", name: "United States", types: ["local", "toll_free"] },
+  { iso: "GB", name: "United Kingdom", types: ["local", "mobile", "national", "toll_free"] },
+  { iso: "CA", name: "Canada", types: ["local", "toll_free"] },
+  { iso: "AU", name: "Australia", types: ["local", "mobile", "toll_free"] },
+] as Array<{ iso: string; name: string; types: NumType[] }>).map(toCountry);
+
+// Most-used countries first, then the rest A–Z.
+const PINNED = ["US", "GB", "CA", "AU"];
+const sortCountries = (list: Country[]) => [
+  ...PINNED.map((iso) => list.find((c) => c.iso === iso)).filter((c): c is Country => !!c),
+  ...list.filter((c) => !PINNED.includes(c.iso)),
 ];
 
-export interface AvailableNumber { e164: string; number: string; price: number; sms: boolean; voice: boolean; }
+const PAGE = 20;      // numbers per "load more"
+const MAX_LIST = 500; // Telnyx's search cap
 
-type NumType = "local" | "mobile";
+const TYPE_INFO: Record<NumType, { title: string; sub: string; note: string }> = {
+  local: { title: "Local", sub: "City number", note: "Geographic number for calls. On local numbers SMS works only in the US & Canada — elsewhere choose Mobile to send texts." },
+  mobile: { title: "Mobile", sub: "Calls + SMS", note: "Mobile number that supports both calls and SMS." },
+  national: { title: "National", sub: "Country-wide", note: "Non-geographic national number for calls, reachable from anywhere in the country." },
+  toll_free: { title: "Toll-free", sub: "Free to call", note: "Free for callers to dial — incoming calls are billed to you at the carrier rate + 150%." },
+};
 
 interface Props {
   onClose: () => void;
-  onSearch: (countryIso: string, type: NumType, areaCode?: string) => Promise<AvailableNumber[]>;
+  onSearch: (countryIso: string, type: NumType, areaCode?: string, limit?: number) => Promise<AvailableNumber[]>;
   walletBalance: number;
   onBuyNumber: (n: AvailableNumber) => Promise<void> | void;
   onTopUp: () => void;
@@ -58,28 +78,78 @@ function TypeBtn({ active, onClick, title, sub }: { active: boolean; onClick: ()
 }
 
 export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, onTopUp, desktop = false }: Props) {
-  const [country, setCountry] = useState(COUNTRIES[0]);
+  const [countries, setCountries] = useState<Country[]>(FALLBACK_COUNTRIES);
+  const [country, setCountry] = useState<Country>(FALLBACK_COUNTRIES[0]);
   const [cDrop, setCDrop] = useState(false);
+  const [cQuery, setCQuery] = useState("");
   const [numType, setNumType] = useState<NumType>("local");
   const [areaCode, setAreaCode] = useState("");
   const [results, setResults] = useState<AvailableNumber[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [limit, setLimit] = useState(PAGE);
+  const [more, setMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [step, setStep] = useState<"pick" | "pay">("pick");
   const [busy, setBusy] = useState(false);
 
+  // Every country Telnyx sells numbers in (server-cached coverage list).
+  useEffect(() => {
+    let live = true;
+    apiNumberCountries()
+      .then(({ countries: list }) => {
+        if (!live || !list?.length) return;
+        const all = sortCountries(list.map(toCountry));
+        setCountries(all);
+        setCountry((cur) => all.find((c) => c.iso === cur.iso) ?? all[0]);
+      })
+      .catch(() => { /* keep the fallback list */ });
+    return () => { live = false; };
+  }, []);
+
+  const pickCountry = (c: Country) => {
+    setCountry(c); setCDrop(false); setCQuery(""); setAreaCode("");
+    if (!c.types.includes(numType)) setNumType(c.types[0] ?? "local");
+  };
+
   const load = useCallback(async (iso: string, type: NumType, ac: string) => {
-    setLoading(true); setSelected(null);
-    const r = await onSearch(iso, type, ac);
-    setResults(r); setLoading(false); setSearched(true);
+    setLoading(true); setSelected(null); setLimit(PAGE); setMore(false);
+    const r = await onSearch(iso, type, ac, PAGE);
+    setResults(r); setMore(r.length >= PAGE); setLoading(false); setSearched(true);
   }, [onSearch]);
 
-  useEffect(() => { load(country.iso, numType, areaCode); /* eslint-disable-next-line */ }, [country.iso, numType]);
+  // Telnyx has no paging: ask again for a bigger list and append what's new.
+  const loadMore = async () => {
+    const next = Math.min(MAX_LIST, limit + PAGE);
+    setLoadingMore(true);
+    const r = await onSearch(country.iso, numType, areaCode, next);
+    setResults((prev) => {
+      const seen = new Set(prev.map((n) => n.e164));
+      return [...prev, ...r.filter((n) => !seen.has(n.e164))];
+    });
+    setLimit(next);
+    setMore(r.length >= next && next < MAX_LIST);
+    setLoadingMore(false);
+  };
+
+  useEffect(() => {
+    if (country.types.includes(numType)) load(country.iso, numType, areaCode);
+    /* eslint-disable-next-line */
+  }, [country.iso, numType]);
+
+  const shownCountries = useMemo(() => {
+    const q = cQuery.trim().toLowerCase();
+    if (!q) return countries;
+    const code = `+${q.replace(/^\+/, "")}`;
+    return countries.filter((c) => c.name.toLowerCase().includes(q) || c.iso.toLowerCase() === q || c.code === code);
+  }, [countries, cQuery]);
 
   const chosenNumber = results.find((n) => n.number === selected) ?? null;
   const numPrice = chosenNumber?.price ?? FALLBACK_PRICE;
-  const enough = walletBalance >= numPrice;
+  // Today's charge: Telnyx's first charge (upfront/setup when higher) + markup.
+  const dueNow = Math.max(numPrice, chosenNumber?.firstPrice ?? 0);
+  const enough = walletBalance >= dueNow;
 
   const completeWallet = async () => {
     if (!chosenNumber) return;
@@ -88,6 +158,8 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
     setBusy(false);
     onClose();
   };
+
+  const showAreaCode = numType === "local";
 
   return (
     <div
@@ -135,7 +207,9 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
         {step === "pick" ? (
           <div style={{ padding: "20px 20px 28px" }}>
             {/* Country picker */}
-            <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 0.8, textTransform: "uppercase" }}>Country</p>
+            <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 0.8, textTransform: "uppercase" }}>
+              Country <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>({countries.length} available)</span>
+            </p>
             <div style={{ position: "relative", marginBottom: 16 }}>
               <button onClick={() => setCDrop((v) => !v)} style={{
                 width: "100%", padding: "13px 16px",
@@ -156,45 +230,65 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
                   borderRadius: 14, overflow: "hidden",
                   boxShadow: "0 16px 48px rgba(0,0,0,0.65)",
                 }}>
-                  {COUNTRIES.map((c, i) => (
-                    <button key={c.iso} onClick={() => { setCountry(c); setCDrop(false); }} style={{
-                      width: "100%", padding: "12px 16px",
-                      background: country.iso === c.iso ? "rgba(124,92,255,0.12)" : "transparent",
-                      border: "none", cursor: "pointer",
-                      borderBottom: i < COUNTRIES.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-                      display: "flex", alignItems: "center", gap: 10,
-                      fontFamily: "'Inter',sans-serif",
-                    }}>
-                      <span style={{ fontSize: 20 }}>{c.flag}</span>
-                      <span style={{ flex: 1, color: C.text, fontSize: 13, textAlign: "left", fontWeight: country.iso === c.iso ? 600 : 400 }}>{c.name}</span>
-                      <span style={{ color: C.muted, fontSize: 12, fontFamily: "'JetBrains Mono',monospace" }}>{c.code}</span>
-                    </button>
-                  ))}
+                  <div style={{ padding: 8, borderBottom: `1px solid ${C.line}` }}>
+                    <input
+                      autoFocus
+                      value={cQuery}
+                      onChange={(e) => setCQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && shownCountries[0]) pickCountry(shownCountries[0]); }}
+                      placeholder={`Search ${countries.length} countries or +code…`}
+                      style={{
+                        width: "100%", padding: "10px 12px", background: C.input,
+                        border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10,
+                        color: C.text, fontSize: 13, outline: "none", fontFamily: "'Inter',sans-serif",
+                      }}
+                    />
+                  </div>
+                  <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                    {shownCountries.length === 0 && (
+                      <p style={{ padding: "14px 16px", color: C.muted, fontSize: 13 }}>No country matches “{cQuery}”.</p>
+                    )}
+                    {shownCountries.map((c, i) => (
+                      <button key={c.iso} onClick={() => pickCountry(c)} style={{
+                        width: "100%", padding: "12px 16px",
+                        background: country.iso === c.iso ? "rgba(124,92,255,0.12)" : "transparent",
+                        border: "none", cursor: "pointer",
+                        borderBottom: i < shownCountries.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                        display: "flex", alignItems: "center", gap: 10,
+                        fontFamily: "'Inter',sans-serif",
+                      }}>
+                        <span style={{ fontSize: 20 }}>{c.flag}</span>
+                        <span style={{ flex: 1, color: C.text, fontSize: 13, textAlign: "left", fontWeight: country.iso === c.iso ? 600 : 400 }}>{c.name}</span>
+                        <span style={{ color: C.muted, fontSize: 12, fontFamily: "'JetBrains Mono',monospace" }}>{c.code}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Number type */}
+            {/* Number type — only the types Telnyx sells in this country */}
             <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 0.8, textTransform: "uppercase" }}>Number Type</p>
-            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-              <TypeBtn active={numType === "local"} onClick={() => setNumType("local")} title="Local" sub="Calls · cheaper" />
-              <TypeBtn active={numType === "mobile"} onClick={() => setNumType("mobile")} title="Mobile" sub="Calls + SMS" />
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(Math.max(country.types.length, 1), 2)}, 1fr)`, gap: 8, marginBottom: 10 }}>
+              {country.types.map((t) => (
+                <TypeBtn key={t} active={numType === t} onClick={() => setNumType(t)} title={TYPE_INFO[t].title} sub={TYPE_INFO[t].sub} />
+              ))}
             </div>
             <p style={{ color: C.muted, fontSize: 11.5, lineHeight: 1.5, marginBottom: 18 }}>
-              {numType === "local"
-                ? "Geographic number for calls. On local numbers SMS works only in the US & Canada — elsewhere choose Mobile to send texts."
-                : "Mobile number that supports both calls and SMS in every country."}
+              {numType === "local" && (country.iso === "US" || country.iso === "CA")
+                ? "Geographic number for calls and SMS."
+                : TYPE_INFO[numType].note}
             </p>
 
             {/* Area code */}
-            {numType === "local" && (<>
+            {showAreaCode && (<>
             <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 0.8, textTransform: "uppercase" }}>Area Code <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></p>
             <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
               <input
                 value={areaCode}
                 onChange={(e) => setAreaCode(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") load(country.iso, numType, areaCode); }}
-                placeholder="e.g. 628, 212, 310…"
+                placeholder={country.iso === "US" || country.iso === "CA" ? "e.g. 628, 212, 310…" : "e.g. 20, 161…"}
                 style={{
                   flex: 1, padding: "13px 16px",
                   background: C.input, border: "1.5px solid rgba(255,255,255,0.07)",
@@ -213,18 +307,20 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
             </>)}
 
             {/* Available numbers */}
-            <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 10, letterSpacing: 0.8, textTransform: "uppercase" }}>Available Numbers</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8, minHeight: 80, maxHeight: 280, overflowY: "auto" }}>
+            <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 10, letterSpacing: 0.8, textTransform: "uppercase" }}>
+              Available Numbers {results.length > 0 && !loading && <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>({results.length})</span>}
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8, minHeight: 80, maxHeight: 360, overflowY: "auto" }}>
               {loading ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "26px 0", color: C.muted, fontSize: 13 }}>
                   <Loader2 size={18} style={{ animation: "spin 0.8s linear infinite" }} /> Searching for numbers…
                 </div>
-              ) : results.length > 0 ? (
-                results.map((n) => {
+              ) : results.length > 0 ? (<>
+                {results.map((n) => {
                   const isSel = selected === n.number;
                   return (
                     <button key={n.e164} onClick={() => setSelected(isSel ? null : n.number)} style={{
-                      width: "100%", padding: "14px 16px",
+                      width: "100%", padding: "14px 16px", flexShrink: 0,
                       background: isSel ? "rgba(124,92,255,0.1)" : C.input,
                       border: `1.5px solid ${isSel ? C.blue : "rgba(255,255,255,0.07)"}`,
                       borderRadius: 14, cursor: "pointer",
@@ -251,11 +347,24 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
                       </span>
                     </button>
                   );
-                })
-              ) : (
+                })}
+                {more && (
+                  <button onClick={loadMore} disabled={loadingMore} style={{
+                    width: "100%", padding: "12px", borderRadius: 14, flexShrink: 0,
+                    background: "transparent", border: `1.5px dashed ${C.line}`,
+                    color: C.text, fontSize: 13, fontWeight: 700, fontFamily: "'Inter',sans-serif",
+                    cursor: loadingMore ? "default" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  }}>
+                    {loadingMore
+                      ? <><Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} /> Loading more…</>
+                      : "Load more numbers"}
+                  </button>
+                )}
+              </>) : (
                 <div style={{ textAlign: "center", padding: "26px 12px", color: C.muted, fontSize: 13 }}>
                   {searched
-                    ? `No ${numType} numbers available for ${country.name}. Try ${numType === "local" ? "Mobile" : "Local"}, or a different country.`
+                    ? `No ${TYPE_INFO[numType].title.toLowerCase()} numbers available in ${country.name} right now. ${country.types.length > 1 ? "Try another number type or a different country." : "Try a different country."}`
                     : "Searching…"}
                 </div>
               )}
@@ -272,7 +381,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
                     boxShadow: "0 6px 20px rgba(124,92,255,0.4)",
                   }}
                 >
-                  Continue · ${numPrice.toFixed(2)}/mo →
+                  Continue · ${numPrice.toFixed(2)}/mo{dueNow > numPrice ? ` ($${dueNow.toFixed(2)} today)` : ""} →
                 </button>
               </div>
             )}
@@ -288,14 +397,15 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
                 <span style={{ fontSize: 34 }}>{country.flag}</span>
                 <div>
                   <p style={{ color: C.text, fontSize: 16, fontWeight: 800, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.4 }}>{selected}</p>
-                  <p style={{ color: C.muted, fontSize: 12.5, marginTop: 3 }}>{country.name}</p>
+                  <p style={{ color: C.muted, fontSize: 12.5, marginTop: 3 }}>{country.name} · {TYPE_INFO[numType].title}</p>
                 </div>
               </div>
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 9 }}>
                 {[
                   { k: "Number rental", v: `$${numPrice.toFixed(2)}/mo` },
+                  ...(dueNow > numPrice ? [{ k: "First month + setup", v: `$${dueNow.toFixed(2)}` }] : []),
                   { k: "Usage", v: "Pay-as-you-go from wallet" },
-                  { k: "Total today", v: `$${numPrice.toFixed(2)}` },
+                  { k: "Total today", v: `$${dueNow.toFixed(2)}` },
                 ].map(({ k, v }) => (
                   <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ color: C.muted, fontSize: 13 }}>{k}</span>
@@ -323,7 +433,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
 
             {!enough && (
               <p style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>
-                Not enough balance — top up ${(numPrice - walletBalance).toFixed(2)} more from the Wallet tab, then come back.
+                Not enough balance — top up ${(dueNow - walletBalance).toFixed(2)} more from the Wallet tab, then come back.
               </p>
             )}
             <div style={{ display: "flex", gap: 10 }}>
@@ -345,7 +455,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
                     opacity: busy ? 0.7 : 1,
                   }}
                 >
-                  {busy ? "Processing…" : `Pay $${numPrice.toFixed(2)} from wallet`}
+                  {busy ? "Processing…" : `Pay $${dueNow.toFixed(2)} from wallet`}
                 </button>
               ) : (
                 <button

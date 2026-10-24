@@ -3,7 +3,7 @@ import {
   LayoutGrid, Phone, MessageSquare, PhoneCall, Bell, Sparkles, Wallet2, ShieldCheck,
   Settings, Smartphone, Plus, LogOut, X, ChevronRight,
 } from "lucide-react";
-import { useApp } from "./store/AppStore";
+import { useApp, type AvailableNumber } from "./store/AppStore";
 import { colors as C, gradients, font, radius } from "./core/theme";
 import { NUMBER_RENTAL } from "./core/plans";
 import { buildNumber, PhoneGate } from "./MobileShell";
@@ -78,8 +78,8 @@ export function DashboardShell() {
 
   const go = (s: Section) => { setSub(null); setSection(s); };
 
-  const handleBuyNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }) =>
-    buyNumber(buildNumber(n), { kind: "local" }).then((ok) => {
+  const handleBuyNumber = (n: AvailableNumber) =>
+    buyNumber(buildNumber(n), { kind: n.kind ?? "local", dueNow: n.firstPrice }).then((ok) => {
       if (ok) showToast(`${n.number} added for $${(n.price > 0 ? n.price : NUMBER_RENTAL.local).toFixed(2)}/mo`);
     });
 

@@ -9,23 +9,13 @@ import type {
 } from "../../core/types";
 import { NUMBER_RENTAL } from "../../core/plans";
 import { retailPrice } from "../../core/pricing";
+import { countryName, flagOf, isoOfE164 } from "../../core/countries";
 import type {
   PhoneNumberDetailed, AvailablePhoneNumber, Balance, ConversationThread,
   DetailRecord, MessageStatus,
 } from "./types";
 
-const COUNTRY: Record<string, { name: ISOCountry; flag: string }> = {
-  US: { name: "United States", flag: "🇺🇸" },
-  CA: { name: "Canada", flag: "🇨🇦" },
-  GB: { name: "United Kingdom", flag: "🇬🇧" },
-  DE: { name: "Germany", flag: "🇩🇪" },
-  FR: { name: "France", flag: "🇫🇷" },
-  JP: { name: "Japan", flag: "🇯🇵" },
-  AU: { name: "Australia", flag: "🇦🇺" },
-  BR: { name: "Brazil", flag: "🇧🇷" },
-};
-
-const fallback = { name: "United States" as ISOCountry, flag: "🌍" };
+const countryOf = (iso: string): { name: ISOCountry; flag: string } => ({ name: countryName(iso), flag: flagOf(iso) });
 
 /** Pretty-print an E.164 number for display. */
 export function formatE164(e164: string): string {
@@ -54,7 +44,7 @@ export function toAppNumber(
   prev?: PhoneNumber,
   extras?: { sms?: boolean; voice?: boolean; price?: number },
 ): PhoneNumber {
-  const c = COUNTRY[pn.country_iso_alpha2] ?? fallback;
+  const c = countryOf(pn.country_iso_alpha2 || isoOfE164(pn.phone_number));
   return {
     id: pn.id,
     flag: prev?.flag ?? c.flag,
@@ -71,10 +61,6 @@ export function toAppNumber(
 const digits = (s: string) => s.replace(/\D/g, "");
 
 // Dial-code → ISO, most-specific first ("1" last so +44/+49/… win over +1).
-const DIAL_ISO: Array<[string, string]> = [
-  ["44", "GB"], ["49", "DE"], ["33", "FR"], ["81", "JP"], ["61", "AU"], ["55", "BR"], ["1", "US"],
-];
-
 /**
  * Build an app PhoneNumber from a DB-owned number (GET /api/numbers) — the
  * user's OWN numbers, not the shared Telnyx account list. Uses the Telnyx id so
@@ -85,21 +71,21 @@ export function ownedToAppNumber(
   prev?: PhoneNumber,
 ): PhoneNumber {
   const d = digits(n.e164);
-  const iso = DIAL_ISO.find(([code]) => d.startsWith(code))?.[1] ?? "US";
-  const c = COUNTRY[iso] ?? fallback;
+  const iso = isoOfE164(n.e164);
+  const c = countryOf(iso);
   // Outside the US/Canada, geographic (local/national) lines are voice-only.
   const voiceOnly = !d.startsWith("1") && (n.numberType === "local" || n.numberType === "national");
   return {
     id: n.telnyxId || n.id,
-    flag: prev?.flag ?? c.flag,
+    flag: c.flag,
     number: prev?.number ?? formatE164(n.e164),
-    country: prev?.country ?? c.name,
+    country: c.name,
     sms: n.numberType ? !voiceOnly : prev?.sms ?? true,
     numberType: n.numberType ?? prev?.numberType,
     voice: prev?.voice ?? true,
     price: prev?.price ?? 0,
     // US/CA: the server reports the real 10DLC state (active = carriers approved).
-    verification: iso === "US"
+    verification: iso === "US" || iso === "CA"
       ? n.smsStatus === "active" ? "verified" : n.smsStatus === "pending" ? "pending" : n.smsStatus ? "unverified" : prev?.verification ?? "unverified"
       : n.telnyxStatus && n.telnyxStatus !== "active" ? "pending" : "verified",
     regStatus: n.telnyxStatus ?? undefined,
@@ -170,11 +156,15 @@ export function toAppCall(rec: DetailRecord, numbers: PhoneNumber[]): CallLog {
   };
 }
 
-export function availableToApp(a: AvailablePhoneNumber): { number: string; price: number; sms: boolean; voice: boolean } {
+export function availableToApp(a: AvailablePhoneNumber): { number: string; price: number; firstPrice: number; sms: boolean; voice: boolean } {
   const has = (n: string) => a.features.some((f) => f.name === n);
+  const monthly = parseFloat(a.cost_information.monthly_cost ?? "0") || 0;
+  const upfront = parseFloat(a.cost_information.upfront_cost ?? "0") || 0;
   return {
     number: formatE164(a.phone_number),
-    price: retailPrice(parseFloat(a.cost_information.monthly_cost ?? "0")),
+    price: retailPrice(monthly),
+    // What the server charges today: Telnyx's first charge (upfront, when higher) + markup.
+    firstPrice: retailPrice(Math.max(monthly, upfront)),
     sms: has("sms"),
     voice: has("voice"),
   };

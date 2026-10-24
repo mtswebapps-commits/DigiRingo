@@ -927,6 +927,35 @@ function liveCallList(uid) {
 const e164Param = (v) => { const d = String(v || "").replace(/[^\d+]/g, ""); return /^\+\d{6,15}$/.test(d) ? d : ""; };
 
 /**
+ * Telnyx's number coverage → [{ iso, name, types }], where types are the line
+ * types we can sell there (local / mobile / national / toll_free). Cached 12h;
+ * a failed refresh keeps serving the last good list.
+ */
+const NUMBER_TYPES = ["local", "mobile", "national", "toll_free"];
+let countryCache = null;
+async function numberCountries() {
+  if (countryCache && Date.now() - countryCache.at < 12 * 3600_000) return countryCache.list;
+  try {
+    const r = await telnyxFetch("/country_coverage");
+    if (!r.ok) throw new Error(`country_coverage → HTTP ${r.status}`);
+    const data = (await r.json())?.data || {};
+    const list = Object.entries(data)
+      .map(([name, c]) => ({
+        iso: String(c?.code || "").toUpperCase(), name,
+        types: NUMBER_TYPES.filter((t) => (c?.phone_number_type || []).includes(t)),
+      }))
+      .filter((c) => /^[A-Z]{2}$/.test(c.iso) && c.types.length && data[c.name]?.numbers)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (!list.length) throw new Error("country_coverage returned no countries");
+    countryCache = { list, at: Date.now() };
+    return list;
+  } catch (e) {
+    if (countryCache) { countryCache.at = Date.now() - 11 * 3600_000; return countryCache.list; } // retry in 1h
+    throw e;
+  }
+}
+
+/**
  * Telnyx's monthly cost for an owned number (country + line type), for renewals
  * of numbers bought before the per-number cost was stored. Reads the price
  * Telnyx quotes for an available number of the same country and type.
@@ -2214,6 +2243,14 @@ const handleRequest = async (req, res) => {
     } catch (e) {
       return send(res, 502, { error: e.message || "Couldn't reach Telnyx" });
     }
+  }
+
+  // Countries Telnyx sells numbers in, with the line types on offer in each
+  // (for the buy screen's country picker). Public catalog data, cached.
+  if (req.url?.startsWith("/api/numbers/countries") && req.method === "GET") {
+    if (!telnyxKey()) return send(res, 503, { error: "Telephony not configured" });
+    try { return send(res, 200, { countries: await numberCountries() }); }
+    catch (e) { return send(res, 502, { error: e.message || "Couldn't reach Telnyx" }); }
   }
 
   if (req.url?.startsWith("/api/numbers") && req.method === "GET") {

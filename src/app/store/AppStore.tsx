@@ -60,7 +60,16 @@ const toAppSub = (s: ApiSubscription | null): Subscription | null => {
 };
 
 /** A purchasable number returned by search (retail-priced). */
-export interface AvailableNumber { e164: string; number: string; price: number; sms: boolean; voice: boolean; }
+export interface AvailableNumber {
+  e164: string; number: string;
+  price: number;        // monthly rental (retail)
+  firstPrice?: number;  // charged today (Telnyx's first charge + markup)
+  sms: boolean; voice: boolean;
+  kind?: NumberKind;
+}
+
+/** Telnyx line types offered on the buy screen. */
+export type NumberLineType = "local" | "mobile" | "national" | "toll_free";
 
 const onlyDigits = (s: string) => (s || "").replace(/\D/g, "");
 
@@ -415,7 +424,7 @@ interface Store {
   syncBillingSoon: () => void;
   /** Buy/add a number. `free` claims the plan's included free number; otherwise
    *  it's a paid extra billed to the wallet. */
-  buyNumber: (n: PhoneNumber, opts?: { kind?: NumberKind; free?: boolean }) => Promise<boolean>;
+  buyNumber: (n: PhoneNumber, opts?: { kind?: NumberKind; free?: boolean; dueNow?: number }) => Promise<boolean>;
   releaseNumber: (id: string) => Promise<boolean>;
   /** Subscribe to a bundle from the wallet. (Card = Stripe checkout in the UI.) */
   subscribe: (tier: string, cycle: BillingCycle, opts?: { pay?: PayMethod }) => Promise<boolean>;
@@ -432,7 +441,7 @@ interface Store {
   refreshUser: () => Promise<void>;
   /** Re-fetch the subscription (usage + number-capacity) and raise limit alerts. */
   refreshSubscription: () => Promise<void>;
-  searchNumbers: (countryIso: string, type: "local" | "mobile", areaCode?: string) => Promise<AvailableNumber[]>;
+  searchNumbers: (countryIso: string, type: NumberLineType, areaCode?: string, limit?: number) => Promise<AvailableNumber[]>;
   readAllActivity: () => void;
 }
 
@@ -1012,9 +1021,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const kind: NumberKind = opts.kind ?? "local";
     const free = !!opts.free;
     const price = free ? 0 : (n.price > 0 ? n.price : NUMBER_RENTAL[kind]);
+    // Today's charge can exceed the monthly price (Telnyx upfront/setup cost).
+    const due = free ? 0 : Math.max(price, opts.dueNow ?? 0);
     // Paid extras draw from the wallet, so they need funds up front; free ones don't.
-    if (!free && state.wallet.balance < price) {
-      showToast(`Top up your wallet — $${price.toFixed(2)} needed`, "error");
+    if (!free && state.wallet.balance < due) {
+      showToast(`Top up your wallet — $${due.toFixed(2)} needed`, "error");
       return false;
     }
     if (telnyx.mode === "mock") {
@@ -1022,7 +1033,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const order = await telnyx.createNumberOrder([toE164(n.number)]);
         const tid = order.phone_numbers[0]?.id ?? n.id;
         dispatch({ t: "BUY_NUMBER", number: { ...n, id: tid, price } });
-        if (!free) dispatch({ t: "CHARGE_WALLET", amount: price, label: `Number ${n.number}` });
+        if (!free) dispatch({ t: "CHARGE_WALLET", amount: due, label: `Number ${n.number}` });
         const trustNote = n.country === "United States" ? " Register it in Trust center to send SMS." : "";
         pushActivity({ kind: "number", title: "Number added", body: free ? `${n.number} added free with your plan.${trustNote}` : `${n.number} added for $${price.toFixed(2)}/mo.${trustNote}`, time: "just now" });
         return true;
@@ -1032,11 +1043,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     try {
-      const res = await apiBuyNumber(toE164(n.number), kind, price);
+      const res = await apiBuyNumber(toE164(n.number), kind, due);
       const tid = res.order?.phone_numbers?.[0]?.id ?? res.order?.id ?? n.id;
       const wasFree = res.free ?? free;
       dispatch({ t: "BUY_NUMBER", number: { ...n, id: tid, price: wasFree ? 0 : price } });
-      trackBuyNumber(wasFree ? 0 : price);
+      trackBuyNumber(wasFree ? 0 : due);
       if (res.wallet) dispatch({ t: "SET_WALLET", balance: res.wallet.balance, txns: toAppTxns(res.wallet) });
       const trustNote2 = n.country === "United States" ? " Register it in Trust center to send SMS." : "";
       pushActivity({ kind: "number", title: "Number added", body: wasFree ? `${n.number} added free with your plan.${trustNote2}` : `${n.number} added for $${price.toFixed(2)}/mo.${trustNote2}`, time: "just now" });
@@ -1172,7 +1183,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // priced retail (wholesale + markup). The buy screen lets the user pick the
   // type and explains the difference (local = geographic/cheaper, often voice
   // only outside US/CA; mobile = voice + SMS everywhere, costs a bit more).
-  const searchNumbers: Store["searchNumbers"] = useCallback(async (countryIso, type, areaCode) => {
+  const searchNumbers: Store["searchNumbers"] = useCallback(async (countryIso, type, areaCode, limit = 20) => {
     try {
       const list = await telnyx.searchAvailable({
         country_code: countryIso,
@@ -1180,13 +1191,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         national_destination_code: type === "local" ? areaCode?.trim() || undefined : undefined,
         features: ["voice"],
         phone_number_type: type,
-        limit: 8,
+        // Telnyx has no paging here: "load more" asks again with a bigger limit
+        // (results come back in a stable order, so earlier ones stay on top).
+        limit: Math.min(500, Math.max(1, limit)),
       });
       return list.map((a) => {
-        const { number, price, sms, voice } = availableToApp(a);
-        return { e164: a.phone_number, number, price, sms, voice };
+        const { number, price, firstPrice, sms, voice } = availableToApp(a);
+        return { e164: a.phone_number, number, price, firstPrice, sms, voice, kind: type === "toll_free" ? "tollfree" as const : "local" as const };
       });
-    } catch {
+    } catch (e) {
+      // "No coverage" for this country/type/area code is an empty result, not a failure.
+      if (e instanceof Error && /coverage/i.test(e.message)) return [];
       showToast("Couldn't load numbers — try again", "error");
       return [];
     }

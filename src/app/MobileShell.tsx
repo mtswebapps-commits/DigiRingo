@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Home, Phone, PhoneCall, MessageSquare, Bell, Settings } from "lucide-react";
-import { useApp } from "./store/AppStore";
+import { useApp, type AvailableNumber } from "./store/AppStore";
 import { colors as C, gradients } from "./core/theme";
-import type { PhoneNumber, ISOCountry } from "./core/types";
+import type { PhoneNumber } from "./core/types";
+import { countryName, flagOf, isoOfE164 } from "./core/countries";
 
 import { AuthScreen } from "./screens/AuthScreen";
 import { VerifyGateScreen } from "./screens/VerifyGateScreen";
@@ -43,22 +44,13 @@ type Overlay =
   | { name: "forwarding" }
   | null;
 
-export const FLAGS: Record<string, { flag: string; country: ISOCountry }> = {
-  "+1":  { flag: "🇺🇸", country: "United States" },
-  "+44": { flag: "🇬🇧", country: "United Kingdom" },
-  "+49": { flag: "🇩🇪", country: "Germany" },
-  "+33": { flag: "🇫🇷", country: "France" },
-  "+81": { flag: "🇯🇵", country: "Japan" },
-  "+61": { flag: "🇦🇺", country: "Australia" },
-};
-
 /** Build a domain PhoneNumber from a search result (shared by mobile + dashboard). */
-export function buildNumber(n: { number: string; price: number; sms: boolean; voice: boolean }): PhoneNumber {
-  const key = Object.keys(FLAGS).find((k) => n.number.startsWith(k)) ?? "+1";
-  const { flag, country } = FLAGS[key];
+export function buildNumber(n: { e164?: string; number: string; price: number; sms: boolean; voice: boolean }): PhoneNumber {
+  const iso = isoOfE164(n.e164 || n.number);
+  const country = countryName(iso);
   return {
-    id: `n${Date.now()}`, flag, number: n.number, country,
-    sms: n.sms, voice: n.voice, price: n.price > 0 ? n.price : NUMBER_RENTAL.local, verification: country === "United States" ? "unverified" : "verified",
+    id: `n${Date.now()}`, flag: flagOf(iso), number: n.number, country,
+    sms: n.sms, voice: n.voice, price: n.price > 0 ? n.price : NUMBER_RENTAL.local, verification: iso === "US" || iso === "CA" ? "unverified" : "verified",
     settings: { label: "New Number", icon: "📱", businessHours: false, autoRecord: false, transcripts: false, forwardAll: false, muted: false, showInRecent: true, ringtone: "Default" },
   };
 }
@@ -85,8 +77,8 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
     { id: "settings", label: "Settings", Icon: Settings },
   ];
 
-  const handleBuyNumber = (n: { number: string; price: number; sms: boolean; voice: boolean }) =>
-    buyNumber(buildNumber(n), { kind: "local" }).then((ok) => {
+  const handleBuyNumber = (n: AvailableNumber) =>
+    buyNumber(buildNumber(n), { kind: n.kind ?? "local", dueNow: n.firstPrice }).then((ok) => {
       if (ok) showToast(`${n.number} added for $${(n.price > 0 ? n.price : NUMBER_RENTAL.local).toFixed(2)}/mo`);
     });
 

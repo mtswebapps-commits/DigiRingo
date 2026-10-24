@@ -4,9 +4,8 @@
  * Pure data shapes, no UI. Reused unchanged across web / Android / iOS.
  */
 
-export type ISOCountry =
-  | "United States" | "United Kingdom" | "Germany"
-  | "France" | "Canada" | "Japan" | "Australia" | "Brazil";
+/** Country display name ("United States", "Pakistan", …). */
+export type ISOCountry = string;
 
 /** Registration / verification state of a number (the Trust-center flow). */
 export type VerificationStatus = "unverified" | "pending" | "verified";
