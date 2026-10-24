@@ -1462,7 +1462,7 @@ const handleRequest = async (req, res) => {
     if (!stripeConfigured()) return send(res, 503, { error: "Card payments are not configured" });
     const body = await readBody(req);
     let g; try { g = JSON.parse(body || "{}"); } catch { g = {}; }
-    const base = `https://${req.headers.host}`;
+    const base = PUBLIC_BASE;
     const successUrl = `${base}/app?pay=success`;
     const cancelUrl = `${base}/app?pay=cancel`;
     let email = null; try { const u = await db.getUser?.(uid); email = u?.email || null; } catch { /* optional */ }
@@ -1494,7 +1494,7 @@ const handleRequest = async (req, res) => {
     if (!paypalConfigured()) return send(res, 503, { error: "PayPal is not configured" });
     const body = await readBody(req);
     let g; try { g = JSON.parse(body || "{}"); } catch { g = {}; }
-    const base = `https://${req.headers.host}`;
+    const base = PUBLIC_BASE;
     try {
       const built = buildPurchase(g, uid);
       if (built.error) return send(res, 400, { error: built.error });
@@ -1658,7 +1658,7 @@ const handleRequest = async (req, res) => {
         await db.saveBillingProfile(uid, { customerId: cust.id });
         bp = { customerId: cust.id };
       }
-      const base = `https://${req.headers.host}`;
+      const base = PUBLIC_BASE;
       const sess = await stripeSetupSession({
         customerId: bp.customerId,
         metadata: { uid: String(uid), kind: "setcard" },
@@ -1992,7 +1992,7 @@ const handleRequest = async (req, res) => {
       if (path === "/api/auth/providers") return send(res, 200, oauthProviders());
 
       const provider = path.split("/")[3]; // google | apple
-      const redirectUri = `https://${req.headers.host}/api/auth/${provider}/callback`;
+      const redirectUri = `${PUBLIC_BASE}/api/auth/${provider}/callback`;
 
       // Kick off the flow → redirect the browser to the provider's consent page.
       if (path.endsWith("/start")) {
@@ -2019,7 +2019,7 @@ const handleRequest = async (req, res) => {
           const qs = new URLSearchParams(params).toString();
           return flow === "native"
             ? redirect(res, `com.digiringo.app://oauth?${qs}`)
-            : redirect(res, `https://${req.headers.host}/app#${qs}`);
+            : redirect(res, `${PUBLIC_BASE}/app#${qs}`);
         };
         if (providerErr) return back({ error: providerErr });
         if (!st || st.provider !== provider) return back({ error: "sign-in session expired, please try again" });
@@ -2058,7 +2058,7 @@ const handleRequest = async (req, res) => {
         const result = await db.registerUser(data.email, data.password, data.name);
         // Email a verification link (best-effort — don't fail signup if mail is down).
         if (result.verifyToken) {
-          const base = `https://${req.headers.host}`;
+          const base = PUBLIC_BASE;
           try { await sendVerifyEmail(result.user.email, result.user.name, `${base}/?verify=${result.verifyToken}`); }
           catch (e) { console.error("verify email failed:", e.message); }
         }
@@ -2074,7 +2074,7 @@ const handleRequest = async (req, res) => {
       if (req.method === "POST" && req.url.startsWith("/api/auth/forgot")) {
         const r = await db.createResetToken(data.email);
         if (r) {
-          const base = `https://${req.headers.host}`;
+          const base = PUBLIC_BASE;
           try { await sendResetEmail(r.user.email, r.user.name, `${base}/?reset=${r.token}`); }
           catch (e) { console.error("reset email failed:", e.message); }
         }
@@ -2092,7 +2092,7 @@ const handleRequest = async (req, res) => {
       if (req.method === "POST" && req.url.startsWith("/api/auth/resend-verification")) {
         const r = await db.createVerifyToken(uid);
         if (r && r.token) {
-          const base = `https://${req.headers.host}`;
+          const base = PUBLIC_BASE;
           try { await sendVerifyEmail(r.user.email, r.user.name, `${base}/?verify=${r.token}`); }
           catch (e) { console.error("verify email failed:", e.message); }
         }
