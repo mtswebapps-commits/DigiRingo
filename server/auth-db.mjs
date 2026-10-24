@@ -29,7 +29,10 @@ const pool = mysql.createPool({
   charset: "utf8mb4_unicode_ci",
 });
 
-const AUTH_SECRET = process.env.AUTH_SECRET || "dev-insecure-change-me";
+// Never fall back to a guessable constant — anyone could forge tokens with it.
+// Without AUTH_SECRET a random per-boot secret is used (sessions end on restart).
+const AUTH_SECRET = process.env.AUTH_SECRET || randomBytes(32).toString("hex");
+if (!process.env.AUTH_SECRET) console.warn("⚠ AUTH_SECRET not set — using a random secret; logins won't survive a restart.");
 
 /** Throws an Error carrying an HTTP status the router can use. */
 function httpErr(status, message) {
@@ -64,8 +67,33 @@ function verifyPassword(pw, stored) {
 
 /* --------------------------------------------------- stateless HMAC auth token */
 const b64u = (s) => Buffer.from(s).toString("base64url");
-function signToken(uid, days = 30) {
-  const payload = b64u(JSON.stringify({ uid, exp: Date.now() + days * 86400000 }));
+const TOKEN_DAYS = 30;
+
+// Revocation: tokens issued before a user's "valid after" time are rejected
+// (set on password reset and on suspension; suspended = Infinity). Kept in
+// memory so verifyToken stays synchronous, persisted in users.tokens_valid_after.
+const tokenFloor = new Map(); // uid → ms
+async function loadTokenFloors() {
+  try { await pool.query("ALTER TABLE users ADD COLUMN tokens_valid_after BIGINT NOT NULL DEFAULT 0"); }
+  catch (e) { if (e?.errno !== 1060) throw e; }
+  const [rows] = await pool.query("SELECT id, tokens_valid_after, status FROM users WHERE tokens_valid_after > 0 OR status = 'suspended'");
+  for (const r of rows) {
+    tokenFloor.set(Number(r.id), String(r.status) === "suspended" ? Infinity : Number(r.tokens_valid_after) || 0);
+  }
+}
+loadTokenFloors().catch((e) => console.error("token revocation list:", e.message));
+
+/** End every existing session of a user (persisted best-effort). */
+async function revokeTokens(uid, { suspended = false } = {}) {
+  const now = Date.now();
+  tokenFloor.set(Number(uid), suspended ? Infinity : now);
+  try { await pool.query("UPDATE users SET tokens_valid_after = ? WHERE id = ?", [now, uid]); }
+  catch (e) { console.error("revokeTokens:", e.message); }
+}
+
+function signToken(uid, days = TOKEN_DAYS) {
+  const now = Date.now();
+  const payload = b64u(JSON.stringify({ uid, iat: now, exp: now + days * 86400000 }));
   const sig = createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
@@ -78,8 +106,13 @@ export function verifyToken(token) {
   const a = Buffer.from(sig), b = Buffer.from(expect);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
-    const { uid, exp } = JSON.parse(Buffer.from(payload, "base64url").toString());
+    const { uid, exp, iat } = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (!uid || Date.now() > exp) return null;
+    const floor = tokenFloor.get(Number(uid));
+    if (floor) {
+      const issued = Number(iat) || Number(exp) - TOKEN_DAYS * 86400000; // older tokens carry no iat
+      if (!(issued >= floor)) return null;
+    }
     return uid;
   } catch {
     return null;
@@ -334,6 +367,7 @@ export async function resetPassword(rawToken, newPassword) {
     "UPDATE users SET password_hash = ?, reset_token_hash = '', reset_expires = 0 WHERE id = ?",
     [hashPassword(newPassword), rows[0].id]
   );
+  await revokeTokens(rows[0].id); // a new password signs out every old session
   return { ok: true };
 }
 
@@ -1543,6 +1577,8 @@ export async function adminSetUserStatus(uid, status) {
   uid = Number(uid);
   status = status === "suspended" ? "suspended" : "active";
   await pool.query("UPDATE users SET status = ? WHERE id = ?", [status, uid]);
+  // Suspension ends live sessions at once; reactivating keeps the old ones dead.
+  await revokeTokens(uid, { suspended: status === "suspended" });
   await logActivity(uid, {
     kind: "system",
     title: status === "suspended" ? "Account suspended" : "Account reactivated",

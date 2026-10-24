@@ -26,7 +26,7 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHmac, timingSafeEqual, createPublicKey, verify as edVerify } from "node:crypto";
+import { createHmac, timingSafeEqual, createPublicKey, randomBytes, verify as edVerify } from "node:crypto";
 import { numberPrice, bundleCharge, bundleFor, BUNDLES, MARKUP_PCT, OVERFLOW_RATES } from "./plans.mjs";
 const markup = (cost, decimals = 3) => Math.round(cost * (1 + MARKUP_PCT / 100) * 10 ** decimals) / 10 ** decimals;
 import { sendPush, vapidPublicKey, webPushConfigured } from "./webpush.mjs";
@@ -107,7 +107,8 @@ const bearer = (req) => {
 // Admin (Control Hub) auth — a single shared password (ADMIN_PASSWORD) gates the
 // dashboard; sessions are short-lived HMAC tokens. No DB needed.
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const ADMIN_SECRET = process.env.AUTH_SECRET || "digiringo-admin-secret-change-me";
+// No guessable fallback: without AUTH_SECRET a random per-boot secret is used.
+const ADMIN_SECRET = process.env.AUTH_SECRET || randomBytes(32).toString("hex");
 const adminHmac = (s) => createHmac("sha256", ADMIN_SECRET).update(String(s)).digest();
 function signAdminToken() {
   const payload = Buffer.from(JSON.stringify({ admin: true, exp: Date.now() + 12 * 3600 * 1000 })).toString("base64url");
@@ -138,6 +139,9 @@ if (TELNYX_PUBLIC_KEY) {
 function verifyTelnyxWebhook(rawBody, sigB64, timestamp) {
   if (!telnyxPubKey) return true; // not configured → allow (warned at boot)
   if (!sigB64 || !timestamp) return false;
+  // Reject replays of an old (validly signed) webhook. Telnyx sends unix seconds;
+  // the window is generous so its own delayed retries are never dropped.
+  if (!(Math.abs(Date.now() / 1000 - Number(timestamp)) <= 3600)) return false;
   try {
     return edVerify(null, Buffer.from(`${timestamp}|${rawBody}`), telnyxPubKey, Buffer.from(sigB64, "base64"));
   } catch { return false; }
@@ -304,13 +308,29 @@ function buildConfig() {
 }
 
 /* ------------------------------------------------------------------ helpers */
-const send = (res, status, body) => {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
+// CORS: only our own front-ends may call the API from a browser — the website,
+// the Capacitor app (https://localhost / capacitor://localhost) and local dev.
+// Extra origins can be added with CORS_ORIGINS (comma-separated). Server-to-
+// server callers (webhooks, curl) send no Origin and are unaffected.
+const CORS_ORIGINS = new Set([
+  "https://digiringo.com", "https://www.digiringo.com",
+  "https://localhost", "capacitor://localhost", "http://localhost",
+  "http://localhost:5173", "http://localhost:8788", "http://127.0.0.1:5173", "http://127.0.0.1:8788",
+  ...String(process.env.CORS_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
+]);
+const corsHeaders = (res) => {
+  const origin = res.req?.headers?.origin;
+  if (!origin || !CORS_ORIGINS.has(origin)) return { Vary: "Origin" };
+  return {
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
-  });
+    Vary: "Origin",
+  };
+};
+const send = (res, status, body) => {
+  if (res.headersSent) { try { res.end(); } catch { /* ignore */ } return; }
+  res.writeHead(status, { "Content-Type": "application/json", ...corsHeaders(res) });
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 };
 
@@ -394,7 +414,8 @@ async function tryFile(absPath) {
 /** Serve the built front-end from /dist. Returns true if it handled the request. */
 async function serveStatic(req, res) {
   // strip query/hash, decode, and prevent path traversal
-  let pathname = decodeURIComponent((req.url || "/").split("?")[0].split("#")[0]);
+  let pathname = "/";
+  try { pathname = decodeURIComponent((req.url || "/").split("?")[0].split("#")[0]); } catch { /* malformed %-escape → site fallback */ }
   const clean = pathname.replace(/\/+$/, "") || "/";
 
   let filePath = null;
@@ -1185,14 +1206,27 @@ const rlBuckets = new Map(); // key → { count, resetAt }
 function rateLimited(key, max, windowMs) {
   const now = Date.now();
   const b = rlBuckets.get(key);
-  if (!b || now > b.resetAt) { rlBuckets.set(key, { count: 1, resetAt: now + windowMs }); return false; }
+  if (!b || now > b.resetAt) {
+    if (rlBuckets.size > 5000) for (const [k, v] of rlBuckets) if (now > v.resetAt) rlBuckets.delete(k); // keep memory bounded
+    rlBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
   b.count += 1;
   return b.count > max;
 }
+// The client IP. Only trust the proxy's header when the request really came
+// through our local nginx (which overwrites X-Real-IP with $remote_addr); the
+// left-most X-Forwarded-For value is client-supplied and can't be trusted.
 function clientIp(req) {
-  const xff = req.headers["x-forwarded-for"];
-  if (xff) return String(xff).split(",")[0].trim();
-  return req.socket?.remoteAddress || "unknown";
+  const peer = req.socket?.remoteAddress || "unknown";
+  const viaLocalProxy = peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1";
+  if (viaLocalProxy) {
+    const real = req.headers["x-real-ip"];
+    if (real) return String(real).trim();
+    const xff = String(req.headers["x-forwarded-for"] || "").split(",").map((x) => x.trim()).filter(Boolean);
+    if (xff.length) return xff[xff.length - 1]; // the hop nginx itself appended
+  }
+  return peer;
 }
 
 /* --------------------------------------------------------------- webhook in */
@@ -1219,7 +1253,7 @@ function handleWebhook(payload) {
 }
 
 /* ------------------------------------------------------------------- routing */
-createServer(async (req, res) => {
+const handleRequest = async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, "");
 
   // 1) Telnyx webhooks (signature-verified when TELNYX_PUBLIC_KEY is set)
@@ -1385,7 +1419,8 @@ createServer(async (req, res) => {
   /* ----------------------------------------------------- PayPal (card rail) */
   //    GET /api/paypal/config → { clientId, enabled } (public client id only).
   if (req.url?.startsWith("/api/paypal/config") && req.method === "GET") {
-    return send(res, 200, { clientId: paypalClientId(), enabled: paypalConfigured() });
+    const on = process.env.PAYPAL_CHECKOUT === "1" && paypalConfigured();
+    return send(res, 200, on ? { clientId: paypalClientId(), enabled: true } : { enabled: false });
   }
   //    POST /api/paypal/checkout — create a hosted PayPal order for a topup /
   //    plan / plan+number / number. SERVER sets all prices (never trusts client).
@@ -1520,7 +1555,11 @@ createServer(async (req, res) => {
   /* ------------------------------------------- Combined payments config (both gateways) */
   if (req.url?.startsWith("/api/payments/config") && req.method === "GET") {
     return send(res, 200, {
-      paypal: { enabled: paypalConfigured(), clientId: paypalClientId() },
+      // Freemius is the live card rail; PayPal is only advertised when switched
+      // back on explicitly (PAYPAL_CHECKOUT=1), so its client id isn't published.
+      paypal: process.env.PAYPAL_CHECKOUT === "1" && paypalConfigured()
+        ? { enabled: true, clientId: paypalClientId() }
+        : { enabled: false },
       freemius: { enabled: freemiusConfigured(), productId: fsProductId(), publicKey: fsPublicKey(), checkouts: fsCheckouts() },
     });
   }
@@ -1571,6 +1610,9 @@ createServer(async (req, res) => {
   if (req.url?.startsWith("/api/admin/")) {
     if (req.url.startsWith("/api/admin/login") && req.method === "POST") {
       if (!ADMIN_PASSWORD) return send(res, 503, { error: "Admin login is not configured" });
+      if (rateLimited(`admin-login:${clientIp(req)}`, 5, 60_000)) {
+        return send(res, 429, { error: "Too many attempts — please wait a minute and try again." });
+      }
       const body = await readBody(req);
       let pw = ""; try { pw = JSON.parse(body || "{}").password || ""; } catch { /* ignore */ }
       const ok = pw.length > 0 && timingSafeEqual(adminHmac(pw), adminHmac(ADMIN_PASSWORD));
@@ -1808,6 +1850,9 @@ createServer(async (req, res) => {
   if (req.url?.startsWith("/api/agent/")) {
     if (!db) return send(res, 503, { error: "Database not configured" });
     if (req.url.startsWith("/api/agent/login") && req.method === "POST") {
+      if (rateLimited(`agent-login:${clientIp(req)}`, 10, 60_000)) {
+        return send(res, 429, { error: "Too many attempts — please wait a minute and try again." });
+      }
       const body = await readBody(req); let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
       try { return send(res, 200, await db.loginAgent(d.email, d.password)); }
       catch (e) { return send(res, e.status || 401, { error: e.message }); }
@@ -2499,6 +2544,16 @@ createServer(async (req, res) => {
   }
 
   const path = req.url.slice(PREFIX.length); // e.g. "/messages" or "/messaging/conversations"
+  const qAt = path.indexOf("?");
+  const pathOnly = qAt < 0 ? path : path.slice(0, qAt);
+
+  // Path hardening for regular users: fetch() resolves "..", "%2e%2e" and the
+  // like before the request leaves, so a path that *starts* with an allowed
+  // prefix could still land on any Telnyx endpoint. Only plain segments
+  // (letters, digits, _ and -) are accepted — no dots, no %-escapes, no "//".
+  if (tnUid && (!/^(\/[A-Za-z0-9_-]+)+$/.test(pathOnly))) {
+    return send(res, 400, { errors: [{ detail: "Invalid path." }] });
+  }
 
   // Block direct number ordering on the raw proxy — purchases MUST go through the
   // billed /api/numbers/buy route (which debits the wallet first, refunds on fail).
@@ -2538,10 +2593,22 @@ createServer(async (req, res) => {
   // 2b) Document upload (regulatory KYC). The browser POSTs the raw file bytes
   //     (Content-Type = the file's type, ?filename=…); we wrap them in multipart
   //     form-data and forward to Telnyx /documents with the secret key injected.
-  if (req.method === "POST" && path.startsWith("/documents")) {
+  if (req.method === "POST" && pathOnly === "/documents") {
     try {
+      const MAX_DOC = 10 * 1024 * 1024; // 10 MB — Telnyx's own limit is lower
+      if (Number(req.headers["content-length"] || 0) > MAX_DOC) {
+        req.resume();
+        return send(res, 413, { errors: [{ detail: "File is too large (max 10 MB)." }] });
+      }
+      // Drain the whole body (so the 413 reply still reaches the client) but stop
+      // buffering once it's over the limit — memory stays bounded.
       const chunks = [];
-      for await (const c of req) chunks.push(c);
+      let size = 0;
+      for await (const c of req) {
+        size += c.length;
+        if (size <= MAX_DOC) chunks.push(c);
+      }
+      if (size > MAX_DOC) return send(res, 413, { errors: [{ detail: "File is too large (max 10 MB)." }] });
       const buf = Buffer.concat(chunks);
       const u = new URL(req.url, "http://x");
       const filename = u.searchParams.get("filename") || "document";
@@ -2559,14 +2626,21 @@ createServer(async (req, res) => {
 
   // Tenancy guard: a regular user may only send SMS FROM a number they own —
   // never spoof another user's number. (Admins, tnUid null, skip this.)
-  if (req.method === "POST" && path.startsWith("/messages") && tnUid && db) {
-    let from = "";
-    try { from = JSON.parse(body || "{}").from || ""; } catch { /* ignore */ }
-    if (from) {
-      const owner = await db.findNumberOwner(from).catch(() => null);
-      if (!owner || Number(owner.userId) !== Number(tnUid)) {
-        return send(res, 403, { errors: [{ detail: "You can only send from a number you own." }] });
-      }
+  // `from` is REQUIRED: without it Telnyx would pick a sender from the shared
+  // messaging profile's pool — i.e. possibly another user's number. One plain
+  // recipient per send, so the 1-send metering below can't be multiplied.
+  if (req.method === "POST" && path.startsWith("/messages") && tnUid) {
+    if (!db) return send(res, 503, { errors: [{ detail: "Messaging is temporarily unavailable." }] });
+    let msg = null;
+    try { msg = JSON.parse(body || "{}"); } catch { /* ignore */ }
+    const from = typeof msg?.from === "string" ? msg.from.trim() : "";
+    const to = typeof msg?.to === "string" ? msg.to.trim() : "";
+    if (!from || !/^\+\d{6,15}$/.test(to)) {
+      return send(res, 400, { errors: [{ detail: "A sender number you own and one recipient number are required." }] });
+    }
+    const owner = await db.findNumberOwner(from).catch(() => null);
+    if (!owner || Number(owner.userId) !== Number(tnUid)) {
+      return send(res, 403, { errors: [{ detail: "You can only send from a number you own." }] });
     }
   }
 
@@ -2588,10 +2662,11 @@ createServer(async (req, res) => {
   // through DB-scoped /api/* routes or WebRTC, never this raw proxy. Admin tokens
   // (tnUid null + valid admin token) are trusted and skip the allow-list.
   if (tnUid) {
+    // Exact paths only (pathOnly is already restricted to plain segments above).
     const allowed =
-      (req.method === "GET"  && path.startsWith("/available_phone_numbers")) ||
-      (req.method === "POST" && path.startsWith("/messages")) ||
-      (req.method === "GET"  && path.startsWith("/messages/"));
+      (req.method === "GET"  && pathOnly === "/available_phone_numbers") ||
+      (req.method === "POST" && pathOnly === "/messages") ||
+      (req.method === "GET"  && /^\/messages\/[A-Za-z0-9-]+$/.test(pathOnly));
     // 10DLC is NOT passed through: the shared account holds every user's brands,
     // so registration goes through the ownership-checked /api/10dlc/* routes.
     if (!allowed) return send(res, 403, { errors: [{ detail: "This operation isn't permitted." }] });
@@ -2605,8 +2680,26 @@ createServer(async (req, res) => {
     });
     const text = await r.text();
 
+    // A single-message lookup is only returned to the user who owns one end of it.
+    if (tnUid && req.method === "GET" && pathOnly.startsWith("/messages/") && r.ok) {
+      let ends = [];
+      try {
+        const d = JSON.parse(text).data ?? {};
+        ends = [d.from?.phone_number, ...(Array.isArray(d.to) ? d.to.map((t) => t?.phone_number) : [])].filter(Boolean);
+      } catch { /* unparseable → treated as not owned */ }
+      let mine = false;
+      for (const e of ends) {
+        const o = await db?.findNumberOwner(e).catch(() => null);
+        if (o && Number(o.userId) === Number(tnUid)) { mine = true; break; }
+      }
+      if (!mine) return send(res, 404, { errors: [{ detail: "Message not found." }] });
+    }
+
     // record outbound sends so they appear in the inbox immediately
     if (req.method === "POST" && path.startsWith("/messages") && r.ok) {
+      // Telnyx bills per segment (a long text = several parts), so meter the same.
+      let parts = 1;
+      try { parts = Math.min(10, Math.max(1, Math.round(Number(JSON.parse(text).data?.parts) || 1))); } catch { /* keep 1 */ }
       try {
         const j = JSON.parse(text);
         const d = j.data ?? {};
@@ -2621,13 +2714,24 @@ createServer(async (req, res) => {
       } catch { /* ignore record errors */ }
       // Meter the send against the plan's SMS pool (overflow billed to wallet).
       // Best-effort — never blocks or fails the send.
-      if (db && tnUid) db.applyUsage(tnUid, { sms: 1 }).catch(() => {});
+      if (db && tnUid) db.applyUsage(tnUid, { sms: parts }).catch(() => {});
     }
     send(res, r.status, text || "{}");
   } catch (e) {
     send(res, 502, { errors: [{ detail: `Proxy error: ${e.message}` }] });
   }
-}).listen(PORT, () => {
+};
+
+// Any error a route didn't catch (malformed URL, bad JSON, DB blip…) answers 500
+// instead of becoming an unhandled rejection — which would crash the process.
+createServer((req, res) => {
+  handleRequest(req, res).catch((e) => {
+    console.error(`request failed ${req.method} ${String(req.url || "").split("?")[0].slice(0, 120)}:`, e?.message || e);
+    try { send(res, 500, { error: "Something went wrong — please try again." }); } catch { /* socket gone */ }
+  });
+// Loopback only: the public reaches us through nginx (TLS, headers, real IP).
+// Set LISTEN_HOST=0.0.0.0 to expose the port directly (e.g. a container).
+}).listen(PORT, process.env.LISTEN_HOST || "127.0.0.1", () => {
   console.log(`DIGIRINGO server listening on :${PORT}`);
   console.log(`  site     : http://localhost:${PORT}/         (marketing)`);
   console.log(`  app      : http://localhost:${PORT}/app      (mobile app)`);
