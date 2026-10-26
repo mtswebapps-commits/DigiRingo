@@ -859,8 +859,11 @@ export async function releaseNumber(uid, e164, by = "user") {
  */
 export async function renewDueNumbers({ resolveMonthlyCost } = {}) {
   await ensureNumberCostColumn();
+  await ensureActivatedColumn();
+  // A number still waiting on carrier approval isn't billed again — its first
+  // month restarts when it goes live (markNumberActivated).
   const [due] = await pool.query(
-    "SELECT * FROM numbers WHERE status = 'active' AND renews_at > 0 AND renews_at < ?",
+    "SELECT * FROM numbers WHERE status = 'active' AND renews_at > 0 AND renews_at < ? AND (activated_at IS NOT NULL OR e164 LIKE '+1%')",
     [Date.now()]
   );
   let renewed = 0;
@@ -891,6 +894,71 @@ export async function renewDueNumbers({ resolveMonthlyCost } = {}) {
     } catch (e) { console.error("number renewal failed for", n.e164, e.message); }
   }
   return renewed;
+}
+
+/* ------------------------------------- numbers vs. Telnyx reconciliation */
+// activated_at = when the number first went live on Telnyx. US/CA numbers go
+// live on purchase; other countries wait for document approval.
+let activatedColReady = false;
+async function ensureActivatedColumn() {
+  if (activatedColReady) return;
+  try {
+    await pool.query("ALTER TABLE numbers ADD COLUMN activated_at BIGINT NULL DEFAULT NULL");
+    await pool.query("UPDATE numbers SET activated_at = UNIX_TIMESTAMP(created_at) * 1000 WHERE e164 LIKE '+1%'");
+  } catch (e) { if (e?.errno !== 1060) throw e; }
+  activatedColReady = true;
+}
+
+/** Every number we still treat as live (active or past_due), across all users. */
+export async function listLiveNumbers() {
+  await ensureActivatedColumn();
+  const [rows] = await pool.query(
+    "SELECT id, user_id, e164, status, activated_at, created_at FROM numbers WHERE status IN ('active','past_due')"
+  );
+  return rows;
+}
+
+/** First time a pending number is seen live: stamp it and start its month now. */
+export async function markNumberActivated(id, e164, uid) {
+  await ensureActivatedColumn();
+  const now = Date.now();
+  const [r] = await pool.query(
+    "UPDATE numbers SET activated_at = ?, renews_at = IF(e164 LIKE '+1%', renews_at, ?) WHERE id = ? AND activated_at IS NULL",
+    [now, now + 30 * 24 * 3600 * 1000, id]
+  );
+  if (r.affectedRows && !String(e164).startsWith("+1")) {
+    await logActivity(uid, { kind: "number", title: "Number activated", body: `${e164} was approved by the carrier and can now make and receive calls.` }).catch(() => {});
+  }
+}
+
+/**
+ * A number Telnyx no longer holds for us. If it never went live (the carrier
+ * cancelled the order, e.g. documents not sent in time) the user gets back what
+ * they paid for it; otherwise it's just released. Runs once per number — the
+ * status change is the guard.
+ */
+export async function closeLapsedNumber(id, { refund = false, reason = "" } = {}) {
+  const [rows] = await pool.query("SELECT id, user_id, e164 FROM numbers WHERE id = ?", [id]);
+  const n = rows[0];
+  if (!n) return null;
+  const [r] = await pool.query(
+    "UPDATE numbers SET status = ?, renews_at = 0 WHERE id = ? AND status IN ('active','past_due')",
+    [refund ? "cancelled" : "released", id]
+  );
+  if (!r.affectedRows) return null;
+  let amount = 0;
+  if (refund) {
+    const [tx] = await pool.query(
+      "SELECT COALESCE(SUM(-amount), 0) AS paid FROM wallet_transactions WHERE user_id = ? AND kind = 'charge' AND label LIKE ?",
+      [n.user_id, `Number ${n.e164} (%`]
+    );
+    amount = Math.round(Number(tx[0]?.paid || 0) * 100) / 100;
+    if (amount > 0) await creditWallet(n.user_id, amount, `Refund — ${n.e164} cancelled by carrier`, `numrefund_${n.id}`);
+  }
+  await logActivity(n.user_id, refund
+    ? { kind: "number", title: "Number order cancelled", body: `The carrier cancelled ${n.e164}${reason ? ` (${reason})` : ""}.${amount > 0 ? ` $${amount.toFixed(2)} was refunded to your wallet.` : ""} You can buy a new number any time.` }
+    : { kind: "number", title: "Number removed", body: `${n.e164} is no longer on your account.` }).catch(() => {});
+  return { e164: n.e164, userId: n.user_id, refunded: amount };
 }
 
 /* -------------------------------------------------- incoming-call delivery */

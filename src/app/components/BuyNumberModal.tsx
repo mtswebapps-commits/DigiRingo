@@ -415,6 +415,20 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
               </div>
             </div>
 
+            {country.iso !== "US" && country.iso !== "CA" && (
+              <div style={{
+                background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.32)",
+                borderRadius: 14, padding: "12px 14px", marginBottom: 18,
+              }}>
+                <p style={{ color: C.text, fontSize: 12.5, fontWeight: 700 }}>Documents needed within 48 hours</p>
+                <p style={{ color: C.muted, fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
+                  {country.name} numbers usually need your ID and proof of address before the carrier switches them on.
+                  Submit them in Trust center right after buying — if they aren't received within 48 hours the carrier
+                  cancels the order and the payment is refunded to your wallet.
+                </p>
+              </div>
+            )}
+
             <p style={{ color: C.muted, fontSize: 11, fontWeight: 700, marginBottom: 8, letterSpacing: 0.8, textTransform: "uppercase" }}>Pay with</p>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <div style={{

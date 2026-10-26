@@ -1032,11 +1032,17 @@ async function describeRequirements(sub) {
     types = new Map(((await r.json())?.data?.[0]?.requirement_types || []).map((t) => [t.id, t]));
     requirementTypesCache.set(key, types);
   }
+  // Telnyx sometimes leaves the list off a pending order (and flags it met) yet
+  // still auto-cancels it ~48h later for missing documents — ask for the
+  // country's full set instead of telling the user nothing is needed.
+  let list = sub.regulatory_requirements || [];
+  const bare = !list.length && sub.status === "pending" && types.size > 0;
+  if (bare) list = [...types.keys()].map((id) => ({ requirement_id: id }));
   return {
     country: sub.country_code,
     orderStatus: sub.status,
-    requirementsMet: !!sub.requirements_met,
-    requirements: (sub.regulatory_requirements || []).map((q) => {
+    requirementsMet: bare ? false : !!sub.requirements_met,
+    requirements: list.map((q) => {
       const t = types.get(q.requirement_id) || {};
       const rejected = /declin|reject|denied/i.test(q.status || "");
       return {
@@ -1065,9 +1071,10 @@ async function orderTelnyxNumber(uid, phoneNumber, kind = "local", { free = fals
   const telnyxId = j?.data?.phone_numbers?.[0]?.id || "";
   await db.provisionNumber(uid, { e164: phoneNumber, kind, telnyxId, free, monthlyCost });
   const isUS = phoneNumber.startsWith("+1");
-  const needsDocs = !isUS && j?.data?.requirements_met === false;
+  // Any non-US order still pending waits on documents (requirements_met can be true while it does).
+  const needsDocs = !isUS && (j?.data?.requirements_met === false || j?.data?.status === "pending");
   const trustNote = isUS ? " Register it in Trust center to send SMS."
-    : needsDocs ? " Submit your ID & address in Trust center to activate it." : "";
+    : needsDocs ? " Submit your ID & address in Trust center within 48 hours — otherwise the carrier cancels the order and you're refunded." : "";
   await db.logActivity(uid, { kind: "number", title: "Number added", body: free
     ? `${phoneNumber} added with your plan.${trustNote}`
     : `${phoneNumber} added for $${Number(amount).toFixed(2)}/mo.${trustNote}` });
@@ -1088,6 +1095,53 @@ async function releaseTelnyxNumber(e164) {
     if (!d.ok) { const dj = await d.json().catch(() => ({})); return { ok: false, reason: dj?.errors?.[0]?.detail || `HTTP ${d.status}` }; }
     return { ok: true };
   } catch (e) { return { ok: false, reason: e.message }; }
+}
+
+/**
+ * Keep our numbers table honest against Telnyx. A number the app shows as live
+ * but Telnyx no longer holds (order auto-cancelled for missing documents, or
+ * deleted) is closed — refunded when it never went live — and a pending
+ * international number that just got approved starts its first month.
+ */
+async function reconcileNumbers() {
+  const owned = new Map();
+  for (let page = 1; ; page++) {
+    const r = await telnyxFetch(`/phone_numbers?page[size]=250&page[number]=${page}`);
+    if (!r.ok) throw new Error(`phone_numbers HTTP ${r.status}`);
+    const j = await r.json();
+    for (const p of j.data || []) owned.set(p.phone_number, p.status);
+    if (!j.meta || page >= (j.meta.total_pages || 1)) break;
+  }
+  let closed = 0;
+  for (const n of await db.listLiveNumbers()) {
+    if (Date.now() - new Date(n.created_at).getTime() < 15 * 60_000) continue; // order still in flight
+    const status = owned.get(n.e164);
+    if (status) {
+      if (status === "active" && n.activated_at == null) await db.markNumberActivated(n.id, n.e164, n.user_id);
+      continue;
+    }
+    // The order lookup by number is flaky (sometimes empty), so try twice.
+    let order = null;
+    for (let i = 0; i < 2 && !order; i++) {
+      const r = await telnyxFetch(`/number_orders?filter[phone_numbers.phone_number]=${encodeURIComponent(n.e164)}`);
+      if (!r.ok) continue;
+      order = ((await r.json())?.data || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
+    }
+    if (order?.status === "pending") continue;
+    const neverLive = n.activated_at == null && !n.e164.startsWith("+1");
+    // Never settle a possible refund without seeing the order — retry next sweep.
+    if (neverLive && !order) continue;
+    const res = await db.closeLapsedNumber(n.id, {
+      refund: neverLive,
+      reason: neverLive ? "the required documents weren't received in time" : "",
+    });
+    if (res) {
+      closed++;
+      numberStatusCache.delete(n.e164);
+      console.log(`numbers: closed ${n.e164} (user ${n.user_id}, order ${order?.status || "none"}${res.refunded ? `, refunded $${res.refunded}` : ""})`);
+    }
+  }
+  return closed;
 }
 
 /** Fulfil a completed checkout (Stripe or PayPal) from its metadata: credit wallet
@@ -2836,5 +2890,12 @@ createServer((req, res) => {
     ]).then((rs) => rs.forEach((r) => { if (r.status === "rejected") console.error("renewal sweep failed:", r.reason?.message); }));
     runRenewals();
     setInterval(runRenewals, 60 * 60 * 1000).unref?.();
+  }
+
+  // Carrier-side changes to numbers (cancelled orders, approvals) every 15 min.
+  if (db?.listLiveNumbers && telnyxKey()) {
+    const runReconcile = () => reconcileNumbers().catch((e) => console.error("number reconcile failed:", e.message));
+    setTimeout(runReconcile, 30_000).unref?.();
+    setInterval(runReconcile, 15 * 60 * 1000).unref?.();
   }
 });
