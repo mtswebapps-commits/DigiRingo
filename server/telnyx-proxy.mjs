@@ -1120,9 +1120,11 @@ async function reconcileNumbers() {
       if (status === "active" && n.activated_at == null) await db.markNumberActivated(n.id, n.e164, n.user_id);
       continue;
     }
-    // The order lookup by number is flaky (sometimes empty), so try twice.
+    // The order lookup by number is flaky (sometimes empty) and rate-limited
+    // (429 on bursts), so pace it and try a few times.
     let order = null;
-    for (let i = 0; i < 2 && !order; i++) {
+    for (let i = 0; i < 3 && !order; i++) {
+      await new Promise((ok) => setTimeout(ok, 2000 * (i + 1)));
       const r = await telnyxFetch(`/number_orders?filter[phone_numbers.phone_number]=${encodeURIComponent(n.e164)}`);
       if (!r.ok) continue;
       order = ((await r.json())?.data || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
