@@ -2262,7 +2262,9 @@ const handleRequest = async (req, res) => {
       }
       if (!sub) return send(res, 400, { error: "This number has no pending requirements" });
       const out = [];
-      for (const [requirementId, v] of Object.entries(data.values || {})) {
+      // Address first: it's the step most likely to bounce, so fail before uploading files.
+      const entries = Object.entries(data.values || {}).sort(([, x], [, y]) => (y?.address ? 1 : 0) - (x?.address ? 1 : 0));
+      for (const [requirementId, v] of entries) {
         if (v == null || v === "") continue;
         if (typeof v === "string") { out.push({ requirement_id: requirementId, field_value: v.trim() }); continue; }
         if (v.file) {
@@ -2278,17 +2280,35 @@ const handleRequest = async (req, res) => {
         }
         if (v.address) {
           const a = v.address;
-          const r = await telnyxFetch("/addresses", { method: "POST", body: JSON.stringify({
-            first_name: a.firstName, last_name: a.lastName, business_name: a.businessName || `${a.firstName} ${a.lastName}`,
-            street_address: a.street, extended_address: a.street2 || undefined, locality: a.city,
-            administrative_area: a.region || undefined,
-            postal_code: a.postalCode ? String(a.postalCode).trim().toUpperCase() : undefined,
-            country_code: String(a.country || "").toUpperCase(), phone_number: a.phone || undefined,
-          }) });
-          const j = await r.json().catch(() => ({}));
+          const t = (x) => (x == null ? "" : String(x).trim()) || undefined;
+          const body = {
+            first_name: t(a.firstName), last_name: t(a.lastName), business_name: t(a.businessName) || t(`${a.firstName || ""} ${a.lastName || ""}`),
+            street_address: t(a.street), extended_address: t(a.street2), locality: t(a.city),
+            administrative_area: t(a.region), postal_code: t(a.postalCode)?.toUpperCase(),
+            country_code: t(a.country)?.toUpperCase(), phone_number: t(a.phone),
+          };
+          const create = async () => {
+            const r = await telnyxFetch("/addresses", { method: "POST", body: JSON.stringify(body) });
+            return { r, j: await r.json().catch(() => ({})) };
+          };
+          let { r, j } = await create();
+          // When the address differs from Telnyx's normalised form (spacing, case,
+          // "California" vs "CA"…) it answers 422 with one "Suggestion" per field
+          // instead of creating it. Take the suggestions, as the portal does, and retry.
+          const errs = j?.errors || [];
+          if (!j?.data?.id && errs.length && errs.every((x) => x.title === "Suggestion")) {
+            for (const x of errs) {
+              const field = String(x.source?.pointer || "").replace(/^\//, "");
+              if (field in body || ["street_address", "extended_address", "locality", "administrative_area", "postal_code", "country_code"].includes(field)) {
+                body[field] = x.detail ? String(x.detail) : undefined;
+              }
+            }
+            ({ r, j } = await create());
+          }
           if (!r.ok || !j?.data?.id) {
             console.warn(`[docs] ${e164} address rejected:`, JSON.stringify(j?.errors || r.status));
-            return send(res, 400, { error: `Address: ${j?.errors?.[0]?.detail || "rejected"}` });
+            const why = (j?.errors || []).filter((x) => x.title !== "Suggestion").map((x) => x.detail).filter(Boolean).join(" · ");
+            return send(res, 400, { error: `Address not accepted by the carrier${why ? `: ${why}` : " — check the street, city, state and ZIP"}` });
           }
           out.push({ requirement_id: requirementId, field_value: j.data.id });
         }
