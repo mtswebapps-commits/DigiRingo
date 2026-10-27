@@ -1040,6 +1040,7 @@ async function describeRequirements(sub) {
   if (bare) list = [...types.keys()].map((id) => ({ requirement_id: id }));
   return {
     country: sub.country_code,
+    numberType: sub.phone_number_type,
     orderStatus: sub.status,
     requirementsMet: bare ? false : !!sub.requirements_met,
     requirements: list.map((q) => {
@@ -2285,14 +2286,20 @@ const handleRequest = async (req, res) => {
             country_code: String(a.country || "").toUpperCase(), phone_number: a.phone || undefined,
           }) });
           const j = await r.json().catch(() => ({}));
-          if (!r.ok || !j?.data?.id) return send(res, 400, { error: `Address: ${j?.errors?.[0]?.detail || "rejected"}` });
+          if (!r.ok || !j?.data?.id) {
+            console.warn(`[docs] ${e164} address rejected:`, JSON.stringify(j?.errors || r.status));
+            return send(res, 400, { error: `Address: ${j?.errors?.[0]?.detail || "rejected"}` });
+          }
           out.push({ requirement_id: requirementId, field_value: j.data.id });
         }
       }
       if (!out.length) return send(res, 400, { error: "Nothing to submit" });
       const r = await telnyxFetch(`/sub_number_orders/${sub.id}`, { method: "PATCH", body: JSON.stringify({ regulatory_requirements: out }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) return send(res, 400, { error: j?.errors?.[0]?.detail || "Telnyx rejected the submission" });
+      if (!r.ok) {
+        console.warn(`[docs] ${e164} submission rejected:`, JSON.stringify(j?.errors || r.status));
+        return send(res, 400, { error: (j?.errors || []).map((x) => x.detail).filter(Boolean).join(" · ") || "Telnyx rejected the submission" });
+      }
       await db.logActivity(uid, { kind: "number", title: "Documents submitted", body: `${e164}: your details were sent for review. The number activates once approved.` }).catch(() => {});
       numberStatusCache.delete(e164);
       const fresh = (await findSubNumberOrder(e164)) || sub;

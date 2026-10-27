@@ -524,6 +524,11 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = f
                       : <Text label={shape.region.label} value={addr.region} onChange={setA("region")} />}
                   </Row>
                   <Text label={shape.postal} value={addr.postalCode} onChange={setA("postalCode")} placeholder={shape.postalEx} />
+                  {info?.country && info.numberType === "local" && addr.country !== String(info.country).toUpperCase() && (
+                    <p style={{ color: C.amber, fontSize: 12, lineHeight: 1.45, marginTop: -4, marginBottom: 10 }}>
+                      {`Local ${countryName(String(info.country).toUpperCase())} numbers usually need an address in ${countryName(String(info.country).toUpperCase())}, ideally in the number's area. With a ${countryName(addr.country)} address the carrier may reject it — a toll-free or national number accepts addresses from any country.`}
+                    </p>
+                  )}
                   {postalBad && <p style={{ color: C.red, fontSize: 12, marginTop: -6, marginBottom: 10 }}>{`That doesn't look like a ${countryName(addr.country)} ${shape.postal.toLowerCase()} — ${shape.postalHint}.`}</p>}
                 </div>
               </div>

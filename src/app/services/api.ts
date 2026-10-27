@@ -123,7 +123,7 @@ export const apiBuyNumber = (phoneNumber: string, kind: NumberKind, price?: numb
   req<BuyResult>("/api/numbers/buy", { method: "POST", body: JSON.stringify({ phoneNumber, kind, price }) });
 
 export interface ApiRequirement { id: string; type: "textual" | "document" | "address" | string; name: string; description: string; example: string; submitted: boolean; rejected?: boolean; status?: string | null; }
-export interface ApiRequirements { status: string | null; country?: string; orderStatus?: string; requirementsMet: boolean; requirements: ApiRequirement[]; }
+export interface ApiRequirements { status: string | null; country?: string; numberType?: string; orderStatus?: string; requirementsMet: boolean; requirements: ApiRequirement[]; }
 export interface ApiAddressInput { firstName: string; lastName: string; businessName: string; street: string; street2: string; city: string; region: string; postalCode: string; country: string; }
 export type ApiRequirementValue = string | { file: { name: string; type: string; data: string } } | { address: ApiAddressInput };
 
