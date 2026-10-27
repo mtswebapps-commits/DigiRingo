@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { X, ChevronDown, Check, Search, Loader2, Wallet } from "lucide-react";
 import { NUMBER_RENTAL } from "../core/plans";
 import { DIAL_CODES, flagOf } from "../core/countries";
@@ -113,24 +113,32 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
     if (!c.types.includes(numType)) setNumType(c.types[0] ?? "local");
   };
 
+  // Only the newest search may fill the list: switching US -> UK while the US
+  // search is still in flight must not let the late US reply overwrite UK.
+  const reqId = useRef(0);
+
   const load = useCallback(async (iso: string, type: NumType, ac: string) => {
-    setLoading(true); setSelected(null); setLimit(PAGE); setMore(false);
+    const id = ++reqId.current;
+    setLoading(true); setResults([]); setSelected(null); setLimit(PAGE); setMore(false);
     const r = await onSearch(iso, type, ac, PAGE);
+    if (id !== reqId.current) return;
     setResults(r); setMore(r.length >= PAGE); setLoading(false); setSearched(true);
   }, [onSearch]);
 
   // Telnyx has no paging: ask again for a bigger list and append what's new.
   const loadMore = async () => {
     const next = Math.min(MAX_LIST, limit + PAGE);
+    const id = reqId.current;
     setLoadingMore(true);
     const r = await onSearch(country.iso, numType, areaCode, next);
+    setLoadingMore(false);
+    if (id !== reqId.current) return;
     setResults((prev) => {
       const seen = new Set(prev.map((n) => n.e164));
       return [...prev, ...r.filter((n) => !seen.has(n.e164))];
     });
     setLimit(next);
     setMore(r.length >= next && next < MAX_LIST);
-    setLoadingMore(false);
   };
 
   useEffect(() => {
