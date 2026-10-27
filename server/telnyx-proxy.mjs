@@ -2280,7 +2280,8 @@ const handleRequest = async (req, res) => {
           const r = await telnyxFetch("/addresses", { method: "POST", body: JSON.stringify({
             first_name: a.firstName, last_name: a.lastName, business_name: a.businessName || `${a.firstName} ${a.lastName}`,
             street_address: a.street, extended_address: a.street2 || undefined, locality: a.city,
-            administrative_area: a.region || undefined, postal_code: a.postalCode || undefined,
+            administrative_area: a.region || undefined,
+            postal_code: a.postalCode ? String(a.postalCode).trim().toUpperCase() : undefined,
             country_code: String(a.country || "").toUpperCase(), phone_number: a.phone || undefined,
           }) });
           const j = await r.json().catch(() => ({}));

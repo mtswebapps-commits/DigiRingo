@@ -3,6 +3,7 @@ import { X, ShieldCheck, Building2, Megaphone, FileUp, Check, Loader2 } from "lu
 import { C, gradients, font, radius } from "../core/theme";
 import type { BrandRegistration, CampaignRegistration } from "../core/types";
 import { useApp } from "../store/AppStore";
+import { DIAL_CODES, countryName } from "../core/countries";
 import { apiGetRequirements, apiSubmitRequirements, apiTenDlcCost, type ApiAddressInput, type ApiRequirement, type ApiRequirementValue, type ApiRequirements } from "../services/api";
 
 /* ============================================================================
@@ -324,14 +325,36 @@ export function CampaignForm({ numberId, onClose, desktop = false }: { numberId:
 }
 
 /* --------------------------------------------------------- REGULATORY DOCS form */
-const ADDRESS_COUNTRIES = [
-  ["GB", "United Kingdom"], ["US", "United States"], ["PK", "Pakistan"], ["AE", "United Arab Emirates"], ["SA", "Saudi Arabia"],
-  ["IN", "India"], ["CA", "Canada"], ["AU", "Australia"], ["DE", "Germany"], ["FR", "France"], ["IE", "Ireland"],
-  ["NL", "Netherlands"], ["ES", "Spain"], ["IT", "Italy"], ["QA", "Qatar"], ["BD", "Bangladesh"], ["TR", "Turkey"],
-].map(([v, l]) => ({ v, l }));
+// Every country, by name — the address can be anywhere in the world.
+const ADDRESS_COUNTRIES = Object.keys(DIAL_CODES)
+  .map((v) => ({ v, l: countryName(v) }))
+  .sort((a, b) => a.l.localeCompare(b.l));
+
+const US_STATES = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR".split(" ");
+const CA_PROVINCES = "AB BC MB NB NL NS NT NU ON PE QC SK YT".split(" ");
+
+/** How an address looks in each country: region field, postcode label/format, examples. */
+function addressShape(cc: string) {
+  if (cc === "US") return {
+    region: { label: "State", options: US_STATES, required: true }, postal: "ZIP code", postalEx: "10001",
+    postalRe: /^\d{5}(-\d{4})?$/, postalHint: "5 digits, e.g. 10001", street: "350 5th Ave", city: "New York",
+  };
+  if (cc === "CA") return {
+    region: { label: "Province", options: CA_PROVINCES, required: true }, postal: "Postal code", postalEx: "M5V 2T6",
+    postalRe: /^[A-Z]\d[A-Z] ?\d[A-Z]\d$/i, postalHint: "letter-digit format, e.g. M5V 2T6", street: "290 Bremner Blvd", city: "Toronto",
+  };
+  if (cc === "GB") return {
+    region: { label: "County (optional)", options: null, required: false }, postal: "Postcode", postalEx: "EC1A 2FD",
+    postalRe: /^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$/i, postalHint: "letters and digits, e.g. EC1A 2FD", street: "60 Holborn Viaduct", city: "London",
+  };
+  return {
+    region: { label: "State / province / region", options: null, required: false }, postal: "Postal code", postalEx: "",
+    postalRe: null as RegExp | null, postalHint: "", street: "Street and house number", city: "",
+  };
+}
 
 const MAX_FILE_MB = 8;
-const emptyAddress = (): ApiAddressInput => ({ firstName: "", lastName: "", businessName: "", street: "", street2: "", city: "", region: "", postalCode: "", country: "GB" });
+const emptyAddress = (country = "GB"): ApiAddressInput => ({ firstName: "", lastName: "", businessName: "", street: "", street2: "", city: "", region: "", postalCode: "", country });
 
 const fileToBase64 = (f: File) => new Promise<string>((resolve, reject) => {
   const r = new FileReader();
@@ -361,6 +384,8 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = f
       setInfo(r);
       onStatus?.(r.status);
       setTexts(Object.fromEntries(r.requirements.filter((q) => q.type === "textual").map((q) => [q.id, textPrefill(q.name, state.user)])));
+      // Start the address in the number's own country (some countries require a local address).
+      if (r.country) setAddr((a) => ({ ...a, country: String(r.country).toUpperCase() }));
       if (state.user?.name) {
         const [first, ...rest] = state.user.name.split(" ");
         setAddr((a) => ({ ...a, firstName: first, lastName: rest.join(" ") }));
@@ -371,7 +396,13 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = f
   const open = (info?.requirements ?? []).filter((q) => !q.submitted);
   const unsupported = open.filter((q) => !["textual", "document", "address"].includes(q.type));
   const setA = (k: keyof ApiAddressInput) => (v: string) => setAddr((p) => ({ ...p, [k]: v }));
-  const addrOk = !!(addr.firstName.trim() && addr.lastName.trim() && addr.street.trim() && addr.city.trim() && addr.country);
+  // Changing the country resets the fields whose format depends on it.
+  const setCountry = (country: string) => setAddr((p) => ({ ...p, country, region: "", postalCode: "" }));
+  const shape = addressShape(addr.country);
+  const postal = addr.postalCode.trim();
+  const postalBad = !!postal && !!shape.postalRe && !shape.postalRe.test(postal);
+  const addrOk = !!(addr.firstName.trim() && addr.lastName.trim() && addr.street.trim() && addr.city.trim() && addr.country
+    && (!shape.region.required || addr.region) && (!shape.postalRe || (postal && !postalBad)));
   const filled = (q: ApiRequirement) =>
     q.type === "textual" ? !!texts[q.id]?.trim() : q.type === "document" ? !!files[q.id] : q.type === "address" ? addrOk : true;
   const ready = open.length > 0 && unsupported.length === 0 && open.every(filled);
@@ -384,7 +415,12 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = f
 
   const submit = async () => {
     const missing = open.find((q) => !filled(q));
-    if (missing) { showToast(`${missing.name} is required`, "error"); return; }
+    if (missing) {
+      const why = missing.type === "address" && postalBad ? `Check the ${shape.postal.toLowerCase()} — ${shape.postalHint}`
+        : missing.type === "address" && shape.region.required && !addr.region ? `Pick a ${shape.region.label.toLowerCase()} for the address`
+        : `${missing.name} is required`;
+      showToast(why, "error"); return;
+    }
     setBusy(true);
     try {
       const values: Record<string, ApiRequirementValue> = {};
@@ -471,16 +507,18 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = f
                     <Text label="Last name" value={addr.lastName} onChange={setA("lastName")} />
                   </Row>
                   <Text label="Business name (or leave blank)" value={addr.businessName} onChange={setA("businessName")} />
-                  <Text label="Street address" value={addr.street} onChange={setA("street")} placeholder="60 Holborn Viaduct" />
+                  <Select label="Country" value={addr.country} onChange={setCountry} options={ADDRESS_COUNTRIES} />
+                  <Text label="Street address" value={addr.street} onChange={setA("street")} placeholder={shape.street} />
                   <Text label="Apartment / suite (optional)" value={addr.street2} onChange={setA("street2")} />
                   <Row desktop={desktop}>
-                    <Text label="City" value={addr.city} onChange={setA("city")} placeholder="London" />
-                    <Text label="State / region" value={addr.region} onChange={setA("region")} />
+                    <Text label="City" value={addr.city} onChange={setA("city")} placeholder={shape.city} />
+                    {shape.region.options
+                      ? <Select label={shape.region.label} value={addr.region} onChange={setA("region")}
+                          options={[{ v: "", l: "Select…" }, ...shape.region.options.map((v) => ({ v, l: v }))]} />
+                      : <Text label={shape.region.label} value={addr.region} onChange={setA("region")} />}
                   </Row>
-                  <Row desktop={desktop}>
-                    <Text label="Postal code" value={addr.postalCode} onChange={setA("postalCode")} placeholder="EC1A 2FD" />
-                    <Select label="Country" value={addr.country} onChange={setA("country")} options={ADDRESS_COUNTRIES} />
-                  </Row>
+                  <Text label={shape.postal} value={addr.postalCode} onChange={setA("postalCode")} placeholder={shape.postalEx} />
+                  {postalBad && <p style={{ color: C.red, fontSize: 12, marginTop: -6, marginBottom: 10 }}>{`That doesn't look like a ${countryName(addr.country)} ${shape.postal.toLowerCase()} — ${shape.postalHint}.`}</p>}
                 </div>
               </div>
             );
