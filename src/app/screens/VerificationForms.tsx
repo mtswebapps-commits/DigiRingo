@@ -118,11 +118,12 @@ function Row({ children, desktop }: { children: ReactNode; desktop: boolean }) {
   return <div style={{ display: "grid", gridTemplateColumns: desktop ? "1fr 1fr" : "1fr", gap: 10 }}>{children}</div>;
 }
 
-function SubmitBtn({ busy, label, onClick, disabled }: { busy: boolean; label: string; onClick: () => void; disabled?: boolean }) {
+function SubmitBtn({ busy, label, onClick, disabled, dim }: { busy: boolean; label: string; onClick: () => void; disabled?: boolean; dim?: boolean }) {
+  const off = disabled || dim;
   return (
     <button onClick={onClick} disabled={busy || disabled} style={{
       width: "100%", marginTop: 6, padding: "14px", borderRadius: radius.md, border: "none",
-      background: disabled ? C.input : gradients.brand, color: disabled ? C.muted : "#fff",
+      background: off ? C.input : gradients.brand, color: off ? C.muted : "#fff",
       fontSize: 15, fontWeight: 800, cursor: busy ? "wait" : disabled ? "not-allowed" : "pointer",
       fontFamily: font.sans, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy ? 0.75 : 1,
     }}>
@@ -418,6 +419,11 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = f
     if (missing) {
       const why = missing.type === "address" && postalBad ? `Check the ${shape.postal.toLowerCase()} — ${shape.postalHint}`
         : missing.type === "address" && shape.region.required && !addr.region ? `Pick a ${shape.region.label.toLowerCase()} for the address`
+        : missing.type === "address" ? `Fill in the address: ${[
+            !addr.firstName.trim() && "first name", !addr.lastName.trim() && "last name", !addr.street.trim() && "street",
+            !addr.city.trim() && "city", shape.postalRe && !postal && shape.postal.toLowerCase(),
+          ].filter(Boolean).join(", ")}`
+        : missing.type === "document" ? `Upload a file for “${missing.name}”`
         : `${missing.name} is required`;
       showToast(why, "error"); return;
     }
@@ -529,7 +535,8 @@ export function RegulatoryDocsForm({ phoneNumber, onClose, onStatus, desktop = f
               </div>
             );
           })}
-          <SubmitBtn busy={busy} label="Submit for approval" onClick={submit} disabled={!ready} />
+          {/* Stays clickable while incomplete so the toast can say which field is missing. */}
+          <SubmitBtn busy={busy} label="Submit for approval" onClick={submit} dim={!ready} disabled={!open.length || unsupported.length > 0} />
         </>
       )}
     </Sheet>
