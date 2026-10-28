@@ -17,6 +17,7 @@ import mysql from "mysql2/promise";
 import { randomBytes, scryptSync, timingSafeEqual, createHmac, createHash } from "node:crypto";
 import { PAYG_RELOAD, OVERFLOW_RATES, NUMBER_RENTAL, bundleFor } from "./plans.mjs";
 import { retailOf, isDomestic, rateKey, defaultWholesale } from "./usage-rates.mjs";
+import { outboundRate } from "./rate-deck.mjs";
 import { chargeOffSession, stripeConfigured } from "./stripe.mjs";
 import { chargeOffSession as paypalChargeOffSession, paypalConfigured } from "./paypal.mjs";
 
@@ -1431,11 +1432,17 @@ export async function canSendSms(uid, { to = "", parts = 1 } = {}) {
 
 /** Estimated customer price per SECOND of a call — outbound to `to`, or inbound
  *  on the user's number `to` (the number's leg plus the in-app WebRTC leg). */
-async function callPricePerSec({ to = "", inbound = false } = {}) {
+async function callPricePerSec({ to = "", inbound = false, froms = [] } = {}) {
   const key = rateKey(to) || "1";
-  const perMin = inbound
+  let perMin = inbound
     ? (await usageRate("voice", "in", key)) + (await usageRate("voice", "app", "1"))
     : await usageRate("voice", "out", key);
+  // Abroad, never budget below the carrier's published rate for that exact
+  // destination (a country's satellite / premium ranges cost far more than its average).
+  if (!inbound && key !== "1") {
+    const deck = outboundRate(to, froms);
+    if (deck != null) perMin = Math.max(perMin, deck);
+  }
   return retailOf(perMin) / 60;
 }
 
@@ -1450,13 +1457,16 @@ export async function voiceRemainingSec(uid, live = [], { to = "", inbound = fal
   const sub = await getActiveSubRow(uid);
   let planSec = sub ? Math.max(0, Number(sub.minutes_included) - Number(sub.minutes_used)) * 60 : 0;
   let credit = await usageCredit(uid);
+  // The caller IDs this account can dial out from (abroad, rates depend on them).
+  const froms = to && !isDomestic(to) || calls.some((c) => c.to && !isDomestic(c.to))
+    ? (await listNumbers(uid).catch(() => [])).map((n) => n.e164).filter(Boolean) : [];
   for (const c of calls) {
     let sec = Math.max(0, Math.floor(Number(c.sec) || 0));
     if (!c.to || isDomestic(c.to)) { const use = Math.min(planSec, sec); planSec -= use; sec -= use; }
-    if (sec > 0) credit -= sec * (await callPricePerSec(c));
+    if (sec > 0) credit -= sec * (await callPricePerSec({ ...c, froms }));
   }
   const domestic = !to || isDomestic(to);
-  const perSec = await callPricePerSec({ to, inbound });
+  const perSec = await callPricePerSec({ to, inbound, froms });
   const walletSec = perSec > 0 ? Math.floor(Math.max(0, credit) / perSec) : 0;
   return Math.max(0, (domestic ? planSec : 0) + walletSec);
 }

@@ -104,6 +104,7 @@ export const apiNumberCountries = () => req<{ countries: ApiNumberCountry[] }>("
 export interface ApiCountryRates {
   iso: string; name: string;
   numbers: Array<{ type: string; monthly: number; firstCharge: number; incomingPerMin: number | null }>;
+  callsTo: { landlinePerMin: number; mobilePerMin: number };
   outbound: { callsPerMin: number; smsPerMsg: number; tollFreeSmsPerMsg: number; mmsPerMsg: number };
 }
 /** Retail prices for one country's numbers plus calling/texting (public). */

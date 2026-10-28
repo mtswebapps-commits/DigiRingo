@@ -36,6 +36,7 @@ import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify,
 import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
 import { freemiusConfigured, verifyWebhook as fsVerifyWebhook, parseEvent as fsParseEvent, grantFor as fsGrantFor, getProductId as fsProductId, getPublicKey as fsPublicKey, getCheckouts as fsCheckouts } from "./freemius.mjs";
 import * as settings from "./settings-store.mjs";
+import { ensureRateDeck, countryCallRates } from "./rate-deck.mjs";
 import { createTenDlc } from "./tendlc.mjs";
 import { sendFcmToUser, sendFcm, fcmConfigured } from "./fcm.mjs";
 import { authorizeUrl as oauthAuthorizeUrl, exchangeCode as oauthExchangeCode, providerStatus as oauthProviders, isProvider as oauthIsProvider } from "./oauth.mjs";
@@ -259,8 +260,14 @@ async function countryRates(iso) {
     });
   }
   const u = (k) => markup(WHOLESALE_USAGE[k], 3);
+  await ensureRateDeck();
+  const dest = iso === "US" || iso === "CA" ? null : countryCallRates(iso);
   return {
     iso, name: cov?.name || row?.name || iso, numbers,
+    // Calling this country (from any of your numbers).
+    callsTo: dest
+      ? { landlinePerMin: markup(dest.landline, 3), mobilePerMin: markup(dest.mobile, 3) }
+      : { landlinePerMin: u("voice"), mobilePerMin: u("voice") },
     outbound: { callsPerMin: u("voice"), smsPerMsg: u("sms_local"), tollFreeSmsPerMsg: u("sms_tollfree"), mmsPerMsg: u("mms_out") },
   };
 }
@@ -3013,4 +3020,8 @@ createServer((req, res) => {
     setTimeout(runReconcile, 30_000).unref?.();
     setInterval(runReconcile, 15 * 60 * 1000).unref?.();
   }
+
+  // Outbound voice rate deck: per-destination budgets for calls abroad (daily refresh).
+  setTimeout(() => ensureRateDeck(), 5_000).unref?.();
+  setInterval(() => ensureRateDeck(), 6 * 3600_000).unref?.();
 });
