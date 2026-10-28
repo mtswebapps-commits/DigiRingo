@@ -253,7 +253,9 @@ async function countryRates(iso) {
       monthly: markup(monthly, 2),
       // Today's charge for a new number is the higher of setup and the first month.
       firstCharge: markup(Math.max(monthly, setup), 2),
-      incomingPerMin: p.inLandline ? markup(Math.max(p.inLandline, p.inMobile || 0), 3) : null,
+      // US/CA aren't on the sheet's inbound columns; they bill at the domestic voice rate.
+      incomingPerMin: p.inLandline ? markup(Math.max(p.inLandline, p.inMobile || 0), 3)
+        : iso === "US" || iso === "CA" ? markup(WHOLESALE_USAGE.voice, 3) : null,
     });
   }
   const u = (k) => markup(WHOLESALE_USAGE[k], 3);
