@@ -85,11 +85,11 @@ export default function App() {
         ${THEME_VARS}
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: ${C.shell}; font-family: 'Inter', sans-serif; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
-        * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(140,140,160,0.45); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(140,140,160,0.7); }
+        * { scrollbar-width: thin; scrollbar-color: rgba(140,140,160,0.5) transparent; }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-16px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
         @keyframes glowPulse { 0%,100% { box-shadow: 0 0 6px 2px rgba(34,197,94,0.7); } 50% { box-shadow: 0 0 12px 4px rgba(34,197,94,0.3); } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

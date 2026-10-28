@@ -190,23 +190,97 @@ let _ratesCache = null;
 let _ratesCacheAt = 0;
 const RATES_TTL = 24 * 60 * 60 * 1000; // 24h
 
+/** One CSV line → cells (Telnyx quotes names like "Korea, Republic of"). */
+function csvCells(line) {
+  const out = []; let cur = "", q = false;
+  for (const ch of line) {
+    if (ch === '"') q = !q;
+    else if (ch === "," && !q) { out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out.map((c) => c.trim());
+}
+
+// Telnyx's price sheet, per country and line type (wholesale USD).
+const PRICE_TYPES = { "local": "local", "mobile": "mobile", "national": "national", "toll free": "toll_free", "shared cost": "shared_cost" };
+let priceSheet = null; // { at, rows: { [iso]: { name, types: { [type]: { setup, monthly, inLandline, inMobile } } } } }
+async function telnyxPriceSheet() {
+  if (priceSheet && Date.now() - priceSheet.at < RATES_TTL) return priceSheet.rows;
+  const r = await fetch(`${TELNYX}/pricing`, { headers: { Authorization: `Bearer ${telnyxKey()}` } });
+  if (!r.ok) { if (priceSheet) return priceSheet.rows; throw new Error(`pricing → HTTP ${r.status}`); }
+  const rows = {};
+  for (const line of (await r.text()).trim().split(/\r?\n/).slice(1)) {
+    const [iso, name, , rawType, setup, monthly, inLandline, inMobile] = csvCells(line);
+    const type = PRICE_TYPES[String(rawType).toLowerCase()];
+    if (!/^[A-Z]{2}$/.test(iso || "") || !type) continue;
+    rows[iso] ??= { name, types: {} };
+    rows[iso].types[type] = { setup: +setup || 0, monthly: +monthly || 0, inLandline: +inLandline || 0, inMobile: +inMobile || 0 };
+  }
+  priceSheet = { at: Date.now(), rows };
+  return rows;
+}
+
+// What Telnyx actually quotes for a number of this country + type right now
+// (the price sheet's US row, for one, is not what US numbers cost).
+const quoteCache = new Map();
+async function liveNumberQuote(iso, type) {
+  const k = `${iso}:${type}`, hit = quoteCache.get(k);
+  if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.q;
+  const r = await telnyxFetch(`/available_phone_numbers?filter[country_code]=${iso}&filter[phone_number_type]=${encodeURIComponent(type)}&filter[limit]=1`);
+  const ci = (await r.json().catch(() => ({})))?.data?.[0]?.cost_information;
+  const q = ci ? { setup: parseFloat(ci.upfront_cost) || 0, monthly: parseFloat(ci.monthly_cost) || 0 } : null;
+  quoteCache.set(k, { q, at: Date.now() });
+  return q;
+}
+
+/** Retail rates for one country: each number type it sells, plus calling/texting. */
+async function countryRates(iso) {
+  const [sheet, coverage] = await Promise.all([telnyxPriceSheet().catch(() => ({})), numberCountries().catch(() => [])]);
+  const cov = coverage.find((c) => c.iso === iso);
+  const row = sheet[iso];
+  if (!cov && !row) return null;
+  const types = cov?.types?.length ? cov.types : Object.keys(row?.types || {});
+  const numbers = [];
+  for (const type of types) {
+    const p = row?.types?.[type] || {};
+    const q = await liveNumberQuote(iso, type).catch(() => null);
+    const monthly = q?.monthly || p.monthly || 0;
+    if (!monthly) continue;
+    const setup = q ? q.setup : p.setup || 0;
+    numbers.push({
+      type,
+      monthly: markup(monthly, 2),
+      // Today's charge for a new number is the higher of setup and the first month.
+      firstCharge: markup(Math.max(monthly, setup), 2),
+      incomingPerMin: p.inLandline ? markup(Math.max(p.inLandline, p.inMobile || 0), 3) : null,
+    });
+  }
+  const u = (k) => markup(WHOLESALE_USAGE[k], 3);
+  return {
+    iso, name: cov?.name || row?.name || iso, numbers,
+    outbound: { callsPerMin: u("voice"), smsPerMsg: u("sms_local"), tollFreeSmsPerMsg: u("sms_tollfree"), mmsPerMsg: u("mms_out") },
+  };
+}
+
 async function fetchTelnyxPricing() {
   if (!telnyxKey()) return null;
   try {
-    const r = await fetch(`${TELNYX}/pricing`, { headers: { Authorization: `Bearer ${telnyxKey()}` } });
-    if (!r.ok) return null;
-    const csv = await r.text();
-    const rows = csv.trim().split("\n").slice(1); // skip header
+    const rows = await telnyxPriceSheet();
     const numbers = {};
-    for (const row of rows) {
-      const cols = row.split(",");
-      // CSV: ISO,Country,...,Type,OneTimeCost,MonthlyPrice,...
-      const iso = cols[0]?.trim();
-      const type = cols[3]?.trim()?.toLowerCase();
-      const monthly = parseFloat(cols[5]) || 0;
-      if (!iso || !type || monthly <= 0) continue;
-      if (!numbers[iso]) numbers[iso] = {};
-      numbers[iso][type] = { wholesale: monthly, retail: ratesMarkup(monthly, 2) };
+    for (const [iso, { types }] of Object.entries(rows)) {
+      for (const [type, p] of Object.entries(types)) {
+        if (p.monthly <= 0) continue;
+        numbers[iso] ??= {};
+        numbers[iso][type.replace("_", " ")] = { wholesale: p.monthly, retail: ratesMarkup(p.monthly, 2) };
+      }
+    }
+    // US/CA: the sheet's rows aren't what those numbers cost — use live quotes.
+    for (const iso of ["US", "CA"]) {
+      for (const type of ["local", "toll_free"]) {
+        const q = await liveNumberQuote(iso, type).catch(() => null);
+        if (q?.monthly) (numbers[iso] ??= {})[type.replace("_", " ")] = { wholesale: q.monthly, retail: ratesMarkup(q.monthly, 2) };
+      }
     }
     return numbers;
   } catch (e) { console.error("Failed to fetch Telnyx pricing:", e.message); return null; }
@@ -2683,6 +2757,15 @@ const handleRequest = async (req, res) => {
 
   // ── /api/rates — public, no auth: returns all retail rates (Telnyx wholesale + markup).
   // The app + marketing site fetch this on load so prices auto-update when Telnyx changes.
+  if (req.url?.startsWith("/api/rates/country") && req.method === "GET") {
+    if (!telnyxKey()) return send(res, 503, { error: "Telephony not configured" });
+    const iso = String(new URL(req.url, "http://x").searchParams.get("iso") || "").toUpperCase();
+    if (!/^[A-Z]{2}$/.test(iso)) return send(res, 400, { error: "Pick a country" });
+    try {
+      const out = await countryRates(iso);
+      return out ? send(res, 200, out) : send(res, 404, { error: "No rates for that country" });
+    } catch (e) { return send(res, 502, { error: e.message || "Couldn't reach the carrier" }); }
+  }
   if (req.url?.startsWith("/api/rates") && req.method === "GET") {
     return send(res, 200, await getRatesWithMarkup());
   }

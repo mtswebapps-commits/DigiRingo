@@ -6,10 +6,10 @@ import {
 } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
 import { useApp } from "../store/AppStore";
-import { USAGE_RATES, NUMBER_RENTAL } from "../core/plans";
-import { liveUsageRates, liveNumberRental } from "../core/rates";
+import { liveNumberRental } from "../core/rates";
 import type { Section } from "../DashboardShell";
 import { numberTypeLabel } from "../core/types";
+import { CountryRates } from "../components/CountryRates";
 
 /* ============================================================ shared UI ==== */
 
@@ -443,8 +443,6 @@ export function DashActivity() {
 /* ================================================================ Pricing == */
 
 export function DashPricing({ onTopUp }: { onTopUp: () => void }) {
-  const rental = liveNumberRental();
-  const rates = liveUsageRates();
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <Panel>
@@ -456,39 +454,7 @@ export function DashPricing({ onTopUp }: { onTopUp: () => void }) {
         </div>
       </Panel>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-        {/* Number rental */}
-        <Panel title="Number rental" sub="Flat monthly fee per number">
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ color: C.text, fontSize: 14 }}>Local number</span>
-              <span style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>${rental.local.toFixed(2)}<span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>/mo</span></span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ color: C.text, fontSize: 14 }}>Toll-free number</span>
-              <span style={{ color: C.text, fontSize: 18, fontWeight: 800 }}>${rental.tollfree.toFixed(2)}<span style={{ color: C.muted, fontSize: 12, fontWeight: 600 }}>/mo</span></span>
-            </div>
-          </div>
-        </Panel>
-
-        {/* Usage rates */}
-        <Panel title="Usage rates" sub="US & Canada · international = carrier rate + 150%">
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {rates.map((r, i) => (
-              <div key={r.key} style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "10px 0",
-                borderTop: i > 0 ? `1px solid ${C.lineSoft}` : "none",
-              }}>
-                <span style={{ color: C.text, fontSize: 13 }}>{r.label}</span>
-                <span style={{ color: C.text, fontSize: 13, fontWeight: 700, fontFamily: font.mono }}>
-                  ${r.price.toFixed(3)}<span style={{ color: C.muted, fontSize: 11, fontWeight: 600 }}>{r.unit}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
+      <CountryRates desktop />
 
       {/* How it works */}
       <Panel title="How it works">

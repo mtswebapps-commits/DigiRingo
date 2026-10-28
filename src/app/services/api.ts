@@ -101,6 +101,14 @@ export interface ApiNumberCountry { iso: string; name: string; types: Array<"loc
 /** Countries Telnyx sells numbers in, with the line types available in each. */
 export const apiNumberCountries = () => req<{ countries: ApiNumberCountry[] }>("/api/numbers/countries");
 
+export interface ApiCountryRates {
+  iso: string; name: string;
+  numbers: Array<{ type: string; monthly: number; firstCharge: number; incomingPerMin: number | null }>;
+  outbound: { callsPerMin: number; smsPerMsg: number; tollFreeSmsPerMsg: number; mmsPerMsg: number };
+}
+/** Retail prices for one country's numbers plus calling/texting (public). */
+export const apiCountryRates = (iso: string) => req<ApiCountryRates>(`/api/rates/country?iso=${encodeURIComponent(iso)}`);
+
 export interface ApiCallLog { id: string; contact: string; direction: "outgoing" | "incoming" | "missed"; status: string; duration: string; via: string; time: string; }
 
 /** Persisted call history (survives refresh). */

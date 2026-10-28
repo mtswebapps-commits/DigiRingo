@@ -42,7 +42,7 @@ const TYPE_INFO: Record<NumType, { title: string; sub: string; note: string }> =
   local: { title: "Local", sub: "City number", note: "Geographic number for calls. On local numbers SMS works only in the US & Canada — elsewhere choose Mobile to send texts." },
   mobile: { title: "Mobile", sub: "Calls + SMS", note: "Mobile number that supports both calls and SMS." },
   national: { title: "National", sub: "Country-wide", note: "Non-geographic national number for calls, reachable from anywhere in the country." },
-  toll_free: { title: "Toll-free", sub: "Free to call", note: "Free for callers to dial — incoming calls are billed to you at the carrier rate + 150%." },
+  toll_free: { title: "Toll-free", sub: "Free to call", note: "Free for callers to dial — incoming calls are billed to you per minute (see Pricing)." },
 };
 
 interface Props {
