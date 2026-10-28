@@ -17,7 +17,7 @@ import mysql from "mysql2/promise";
 import { randomBytes, scryptSync, timingSafeEqual, createHmac, createHash } from "node:crypto";
 import { PAYG_RELOAD, OVERFLOW_RATES, NUMBER_RENTAL, bundleFor } from "./plans.mjs";
 import { retailOf, isDomestic, rateKey, defaultWholesale } from "./usage-rates.mjs";
-import { outboundRate } from "./rate-deck.mjs";
+import { outboundRate, smsRateMax } from "./rate-deck.mjs";
 import { chargeOffSession, stripeConfigured } from "./stripe.mjs";
 import { chargeOffSession as paypalChargeOffSession, paypalConfigured } from "./paypal.mjs";
 
@@ -1426,7 +1426,9 @@ export async function canSendSms(uid, { to = "", parts = 1 } = {}) {
   const domestic = !to || isDomestic(to);
   const sub = await getActiveSubRow(uid);
   if (domestic && sub && Number(sub.sms_used) + parts <= Number(sub.sms_included)) return true;
-  const price = retailOf(await usageRate("sms", "out", rateKey(to) || "1")) * parts;
+  let perPart = await usageRate("sms", "out", rateKey(to) || "1");
+  if (!domestic) perPart = Math.max(perPart, smsRateMax(to) ?? 0); // never below the carrier's sheet abroad
+  const price = retailOf(perPart) * parts;
   return (await usageCredit(uid)) >= price;
 }
 

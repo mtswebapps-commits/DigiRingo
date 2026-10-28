@@ -98,6 +98,9 @@ export function CountryRates({ desktop = false }: { desktop?: boolean }) {
             {head(<DollarSign size={16} color={C.green} />, "Calls & texts", "Charged per use from your wallet.")}
             <div style={row(0)}><span style={{ color: C.text, fontSize: 13 }}>{`Calls to ${name} landlines`}</span>{price(rates.callsTo.landlinePerMin, "/min", 3)}</div>
             <div style={row(1)}><span style={{ color: C.text, fontSize: 13 }}>{`Calls to ${name} mobiles`}</span>{price(rates.callsTo.mobilePerMin, "/min", 3)}</div>
+            {rates.smsTo != null && rates.iso !== "US" && rates.iso !== "CA" && (
+              <div style={row(2)}><span style={{ color: C.text, fontSize: 13 }}>{`SMS to ${name}`}</span>{price(rates.smsTo, "/msg", 3)}</div>
+            )}
             <p style={{ color: C.muted, fontSize: 11.5, padding: "12px 0 2px", borderTop: `1px solid ${C.lineSoft}` }}>Texts to US &amp; Canada numbers</p>
             <div style={row(0)}><span style={{ color: C.text, fontSize: 13 }}>SMS</span>{price(o.smsPerMsg, "/msg", 3)}</div>
             <div style={row(1)}><span style={{ color: C.text, fontSize: 13 }}>SMS from a toll-free number</span>{price(o.tollFreeSmsPerMsg, "/msg", 3)}</div>

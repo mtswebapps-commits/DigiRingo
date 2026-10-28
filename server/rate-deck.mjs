@@ -17,6 +17,10 @@ import path from "node:path";
 const DECK_URL = process.env.TELNYX_RATE_DECK_URL
   || "https://portal.telnyx.com/downloads/global_conversational/global_conver_e6762f4dc6.csv";
 const CACHE = process.env.TELNYX_RATE_DECK_CACHE || path.join(os.tmpdir(), "digiringo-rate-deck.csv");
+// International SMS price sheet (per country + operator), linked from the portal's Messaging pricing.
+const SMS_URL = process.env.TELNYX_SMS_RATES_URL
+  || "https://portal.telnyx.com/downloads/intl_sms/usd_rates_20260505_0930.csv";
+const SMS_CACHE = path.join(path.dirname(CACHE), "digiringo-sms-rates.csv");
 const TTL = 24 * 3600_000;
 
 let deck = null;   // { at, prefixes: Map<digits, Entry>, countries: Map<iso, summary> }
@@ -75,7 +79,35 @@ function build(csv) {
   return { at: Date.now(), prefixes, countries };
 }
 
+let sms = null; // Map<iso, highest $/part across the country's operators>
+
+function buildSms(csv) {
+  const out = new Map();
+  for (const line of csv.split("\n").slice(1)) {
+    if (!line) continue;
+    const c = cells(line);
+    const iso = String(c[4] || "").trim().toUpperCase(), price = parseFloat(c[7]) || 0;
+    if (/^[A-Z]{2}$/.test(iso) && price > 0) out.set(iso, Math.max(out.get(iso) || 0, price));
+  }
+  return out;
+}
+
+async function loadSms() {
+  try {
+    const r = await fetch(SMS_URL);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const csv = await r.text();
+    if (!/^Region,Country/.test(csv)) throw new Error("not an SMS rate sheet");
+    sms = buildSms(csv);
+    fs.promises.writeFile(SMS_CACHE, csv).catch(() => {});
+  } catch (e) {
+    console.warn("sms rates: download failed —", e.message);
+    if (!sms) { try { sms = buildSms(await fs.promises.readFile(SMS_CACHE, "utf8")); } catch { /* no copy yet */ } }
+  }
+}
+
 async function load() {
+  await loadSms();
   try {
     const r = await fetch(DECK_URL);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -133,6 +165,18 @@ export function outboundRate(to, froms = []) {
   const ids = froms.filter(Boolean);
   if (!ids.length) return e.max;
   return Math.max(...ids.map((f) => rateFrom(e, f)));
+}
+
+/** Highest wholesale $/part to text `to` abroad (any operator in its country), or null. */
+export function smsRateMax(to) {
+  if (!deck || !sms) return null;
+  const e = entryFor(digits(to));
+  return e ? sms.get(e.iso) ?? null : null;
+}
+
+/** Highest wholesale $/part to text a number in `iso`, or null. */
+export function countrySmsRate(iso) {
+  return sms?.get(String(iso || "").toUpperCase()) ?? null;
 }
 
 /** Typical wholesale $/min to a country's landlines and mobiles (non-surcharged). */

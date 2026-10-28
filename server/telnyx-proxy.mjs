@@ -36,7 +36,7 @@ import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify,
 import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
 import { freemiusConfigured, verifyWebhook as fsVerifyWebhook, parseEvent as fsParseEvent, grantFor as fsGrantFor, getProductId as fsProductId, getPublicKey as fsPublicKey, getCheckouts as fsCheckouts } from "./freemius.mjs";
 import * as settings from "./settings-store.mjs";
-import { ensureRateDeck, countryCallRates } from "./rate-deck.mjs";
+import { ensureRateDeck, countryCallRates, countrySmsRate } from "./rate-deck.mjs";
 import { createTenDlc } from "./tendlc.mjs";
 import { sendFcmToUser, sendFcm, fcmConfigured } from "./fcm.mjs";
 import { authorizeUrl as oauthAuthorizeUrl, exchangeCode as oauthExchangeCode, providerStatus as oauthProviders, isProvider as oauthIsProvider } from "./oauth.mjs";
@@ -268,6 +268,8 @@ async function countryRates(iso) {
     callsTo: dest
       ? { landlinePerMin: markup(dest.landline, 3), mobilePerMin: markup(dest.mobile, 3) }
       : { landlinePerMin: u("voice"), mobilePerMin: u("voice") },
+    // Texting this country: US/CA at the domestic rate, elsewhere the highest operator price.
+    smsTo: iso === "US" || iso === "CA" ? u("sms_local") : (countrySmsRate(iso) != null ? markup(countrySmsRate(iso), 3) : null),
     outbound: { callsPerMin: u("voice"), smsPerMsg: u("sms_local"), tollFreeSmsPerMsg: u("sms_tollfree"), mmsPerMsg: u("mms_out") },
   };
 }
