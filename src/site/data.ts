@@ -83,10 +83,6 @@ export const USAGE_RATES = [
   { item: "Calls — US & Canada", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/min" },
   { item: "International calls & SMS", price: "Varies by country", unit: "" },
   { item: "SMS — US & Canada", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/msg" },
-  { item: "Toll-free SMS", price: `$${retailPrice(0.008, 3).toFixed(3)}`, unit: "/msg" },
-  { item: "Short-code SMS", price: `$${retailPrice(0.01, 3).toFixed(3)}`, unit: "/msg" },
-  { item: "MMS — outbound", price: `$${retailPrice(0.018, 3).toFixed(3)}`, unit: "/msg" },
-  { item: "MMS — inbound", price: `$${retailPrice(0.006, 3).toFixed(3)}`, unit: "/msg" },
 ];
 
 export const FAQS = [
@@ -100,7 +96,7 @@ export const FAQS = [
   },
   {
     q: "Which countries are available?",
-    a: "You can get local numbers in the US, UK, Canada, Australia, Germany, France, Brazil and more — with new countries added regularly. Some countries offer mobile numbers for full SMS support.",
+    a: "You can get local and toll-free numbers in the US and Canada, plus numbers in many other countries such as the UK, Australia, Germany and France. Some countries ask for an ID or address before the number goes live; the app tells you what's needed.",
   },
   {
     q: "How does billing work?",
@@ -108,7 +104,7 @@ export const FAQS = [
   },
   {
     q: "How do I add credit?",
-    a: "Open your wallet and pick a top-up pack ($5, $10, $20 or $50). Payment is processed securely by card — your balance updates instantly and every charge is itemised in your transaction history.",
+    a: "Open your wallet and pick a top-up pack ($5, $10, $20 or $50). Payment is processed securely by card — your balance updates once the payment clears and every charge is itemised in your transaction history.",
   },
   {
     q: "Can I send business SMS?",
@@ -116,7 +112,7 @@ export const FAQS = [
   },
   {
     q: "Is it available on iPhone and Android?",
-    a: "DIGIRINGO is built cross-platform and ships to both iOS and Android, with the same clean experience on every device.",
+    a: "The Android app is on Google Play, and the web app works in any modern browser on your computer. On iPhone, open the web app in Safari and add it to your Home Screen — a native iPhone app is on the way.",
   },
 ];
 

@@ -1,264 +1,147 @@
-import { useState, useEffect } from "react";
-import { ArrowLeft, Calendar, User, Tag, Clock } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Calendar, Clock, User } from "lucide-react";
 import { Reveal } from "../components/Reveal";
-import { SectionIntro } from "../components/ui";
-import { useRouter } from "../router";
+import { Link, useRouter } from "../router";
+import { FaqList } from "../components/blocks";
+import { STATIC_POSTS } from "../content/posts";
+import { extractFaq, renderMarkdown, slugify } from "../lib/md";
+import { usePageMeta } from "../lib/seo";
+import { NotFound } from "./NotFound";
 
-interface BlogPost {
-  id: number;
+/** One shape for the site's own Markdown posts and posts written in the admin panel. */
+interface Post {
   slug: string;
   title: string;
   excerpt: string;
-  body: string;
-  cover: string | null;
+  category: string;
+  date: string;
   author: string;
-  tags: string[];
-  published: boolean;
-  created_at: string;
+  minutes: number;
+  md?: string;    // Markdown body (site posts)
+  html?: string;  // HTML body (admin posts)
+  cover?: string | null;
 }
 
-const API = "";
+const GRADS = [
+  "linear-gradient(135deg, #5b3df5 0%, #8b6cf7 55%, #4fb7ff 100%)",
+  "linear-gradient(135deg, #2f6bff 0%, #7c5cff 60%, #c06cf0 100%)",
+  "linear-gradient(135deg, #0ea5a4 0%, #3b82f6 60%, #7c5cff 100%)",
+  "linear-gradient(135deg, #7c5cff 0%, #ec4f9c 100%)",
+  "linear-gradient(135deg, #1e3a8a 0%, #6d28d9 100%)",
+];
+const gradFor = (s: string) => GRADS[[...s].reduce((n, c) => n + c.charCodeAt(0), 0) % GRADS.length];
 
 const fmtDate = (iso: string) => {
-  try {
-    return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-  } catch {
-    return iso;
-  }
+  try { return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }); } catch { return iso; }
 };
 
-const readTime = (html: string) => {
-  const text = html.replace(/<[^>]+>/g, "");
-  const words = text.split(/\s+/).filter(Boolean).length;
-  return `${Math.max(1, Math.ceil(words / 200))} min read`;
-};
+const fromStatic: Post[] = STATIC_POSTS.map((p) => ({
+  slug: p.slug, title: p.title, excerpt: p.excerpt, category: p.category, date: p.date, author: p.author,
+  minutes: Math.max(1, Math.round(p.words / 230)), md: p.body,
+}));
 
-const GRAD_PLACEHOLDERS = [
-  "linear-gradient(135deg, #7c5cff 0%, #a78bfa 50%, #60a5fa 100%)",
-  "linear-gradient(135deg, #f472b6 0%, #a78bfa 50%, #7c5cff 100%)",
-  "linear-gradient(135deg, #34d399 0%, #60a5fa 50%, #a78bfa 100%)",
-  "linear-gradient(135deg, #fbbf24 0%, #f472b6 50%, #7c5cff 100%)",
-];
-
-function Skeleton({ height = 200, radius = 16 }: { height?: number; radius?: number }) {
-  return (
-    <div
-      style={{
-        height,
-        borderRadius: radius,
-        background: "var(--line)",
-        animation: "blogPulse 1.5s ease-in-out infinite",
-      }}
-    />
-  );
+/** Admin-panel posts from /api/blog, merged with the bundled ones (bundled slugs win). */
+function usePosts(): Post[] {
+  const [dbPosts, setDbPosts] = useState<Post[]>([]);
+  useEffect(() => {
+    fetch("/api/blog")
+      .then((r) => (r.ok ? r.json() : { posts: [] }))
+      .then((d) => setDbPosts((d.posts ?? []).map((p: Record<string, string>) => ({
+        slug: p.slug, title: p.title, excerpt: p.excerpt || "", author: p.author || "DIGIRINGO Team",
+        category: String(p.tags || "").split(",")[0]?.trim() || "News", date: p.created_at, minutes: 4, cover: p.cover_url || null,
+      }))))
+      .catch(() => {});
+  }, []);
+  return useMemo(() => {
+    const seen = new Set(fromStatic.map((p) => p.slug));
+    return [...fromStatic, ...dbPosts.filter((p) => !seen.has(p.slug))].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [dbPosts]);
 }
 
-function PostCard({ post, index }: { post: BlogPost; index: number }) {
-  const { navigate } = useRouter();
-  const [hovered, setHovered] = useState(false);
+function Cover({ post, big = false }: { post: Post; big?: boolean }) {
+  return post.cover
+    ? <div className="dg-post-cover" style={{ background: `url(${post.cover}) center/cover` }} />
+    : <div className="dg-post-cover" style={{ background: gradFor(post.slug), fontSize: big ? undefined : 17 }}><span style={{ position: "relative", zIndex: 1, maxWidth: "85%" }}>{post.category}</span></div>;
+}
 
+function PostCard({ post, i = 0 }: { post: Post; i?: number }) {
   return (
-    <Reveal delay={index * 80}>
-      <article
-        onClick={() => navigate(`/blog/${post.slug}`)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          background: "var(--card-bg, rgba(255,255,255,0.03))",
-          border: "1px solid var(--line)",
-          borderRadius: 18,
-          overflow: "hidden",
-          cursor: "pointer",
-          transition: "transform 0.3s ease, box-shadow 0.3s ease",
-          transform: hovered ? "translateY(-4px)" : "translateY(0)",
-          boxShadow: hovered
-            ? "0 20px 40px rgba(0,0,0,0.3)"
-            : "0 4px 12px rgba(0,0,0,0.1)",
-        }}
-      >
-        {/* Cover */}
-        <div
-          style={{
-            height: 200,
-            background: post.cover
-              ? `url(${post.cover}) center/cover no-repeat`
-              : GRAD_PLACEHOLDERS[index % GRAD_PLACEHOLDERS.length],
-            position: "relative",
-          }}
-        >
-          {post.tags.length > 0 && (
-            <div style={{ position: "absolute", bottom: 12, left: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {post.tags.slice(0, 2).map((tag) => (
-                <span
-                  key={tag}
-                  style={{
-                    background: "rgba(0,0,0,0.6)",
-                    backdropFilter: "blur(8px)",
-                    color: "#fff",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    padding: "4px 10px",
-                    borderRadius: 20,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.5,
-                  }}
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
+    <Reveal delay={(i % 3) * 60}>
+      <Link to={`/blog/${post.slug}`} className="dg-post-card">
+        <Cover post={post} />
+        <div className="body">
+          <span className="dg-post-tag">{post.category}</span>
+          <h3>{post.title}</h3>
+          <p>{post.excerpt}</p>
+          <div className="dg-post-meta"><span>{fmtDate(post.date)}</span><span>{post.minutes} min read</span></div>
         </div>
-
-        {/* Body */}
-        <div style={{ padding: "20px 22px 24px" }}>
-          <h3
-            style={{
-              color: "var(--text)",
-              fontSize: 18,
-              fontWeight: 800,
-              lineHeight: 1.35,
-              marginBottom: 10,
-            }}
-          >
-            {post.title}
-          </h3>
-          <p
-            style={{
-              color: "var(--muted)",
-              fontSize: 14,
-              lineHeight: 1.6,
-              marginBottom: 16,
-              display: "-webkit-box",
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-            }}
-          >
-            {post.excerpt}
-          </p>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              color: "var(--muted)",
-              fontSize: 12.5,
-            }}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <Calendar size={13} />
-              {fmtDate(post.created_at)}
-            </span>
-            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <Clock size={13} />
-              {readTime(post.body)}
-            </span>
-          </div>
-        </div>
-      </article>
+      </Link>
     </Reveal>
   );
 }
 
-function BlogListing() {
-  const [posts, setPosts] = useState<BlogPost[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`${API}/api/blog`)
-      .then((r) => (r.ok ? r.json() : { posts: [] }))
-      .then((d) => setPosts(d.posts ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+function BlogIndex({ category }: { category?: string }) {
+  const posts = usePosts();
+  const cats = useMemo(() => [...new Set(posts.map((p) => p.category))].sort(), [posts]);
+  const active = category ? cats.find((c) => slugify(c) === category) : undefined;
+  usePageMeta(
+    active ? `${active} Articles | DIGIRINGO Blog` : "Blog: Business Phone Guides & Tips | DIGIRINGO",
+    "Practical guides on business phone numbers, VoIP, call forwarding, business texting and 10DLC, written for small businesses and remote teams.",
+  );
+  const list = active ? posts.filter((p) => p.category === active) : posts;
+  const [featured, ...rest] = list;
 
   return (
     <>
-      <section
-        className="dg-section"
-        style={{
-          paddingTop: "calc(var(--nav-h) + clamp(40px,8vw,90px))",
-          paddingBottom: 30,
-        }}
-      >
-        <div className="dg-wrap dg-center">
-          <Reveal>
-            <span className="dg-eyebrow">Blog</span>
-          </Reveal>
-          <Reveal delay={80}>
-            <h1
-              className="dg-h1"
-              style={{ marginTop: 22, fontSize: "clamp(36px,6vw,72px)" }}
-            >
-              News &amp; <span className="dg-grad-text">insights</span>
-            </h1>
-          </Reveal>
-          <Reveal delay={150}>
-            <p
-              className="dg-lead"
-              style={{ marginTop: 22, maxWidth: 560, margin: "22px auto 0" }}
-            >
-              Tips, updates and stories from the DIGIRINGO team — everything you
-              need to make the most of your virtual numbers.
-            </p>
-          </Reveal>
+      <section className="dg-hero-b center" style={{ paddingBottom: 24 }}>
+        <div className="dg-wrap dg-hero-b-center">
+          <span className="dg-eyebrow">Blog</span>
+          <h1 className="dg-h1b">{active ?? "Guides for running your business line"}</h1>
+          <p className="dg-lead-b hero">How-tos and explainers on phone numbers, calling, texting and staying reachable — no jargon.</p>
+          <div className="dg-blog-cats">
+            <Link to="/blog" className={`dg-blog-cat${!active ? " on" : ""}`}>All</Link>
+            {cats.map((c) => <Link key={c} to={`/blog/category/${slugify(c)}`} className={`dg-blog-cat${active === c ? " on" : ""}`}>{c}</Link>)}
+          </div>
         </div>
       </section>
 
-      <section className="dg-section" style={{ paddingTop: 10 }}>
+      <section className="dg-block" style={{ paddingTop: 24 }}>
         <div className="dg-wrap">
-          {loading ? (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))",
-                gap: 24,
-              }}
-            >
-              {[0, 1, 2].map((i) => (
-                <div key={i}>
-                  <Skeleton height={200} />
-                  <div style={{ padding: "20px 0" }}>
-                    <Skeleton height={22} radius={8} />
-                    <div style={{ marginTop: 10 }}>
-                      <Skeleton height={48} radius={8} />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : posts.length === 0 ? (
-            <Reveal>
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "60px 20px 80px",
-                  color: "var(--muted)",
-                }}
-              >
-                <p style={{ fontSize: 48, marginBottom: 16 }}>&#x1F4DD;</p>
-                <p style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
-                  No posts yet
-                </p>
-                <p style={{ fontSize: 14, marginTop: 8 }}>
-                  Check back soon — we're writing something great.
-                </p>
-              </div>
-            </Reveal>
+          {!featured ? (
+            <p className="dg-center dg-muted">No posts here yet.</p>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))",
-                gap: 24,
-              }}
-            >
-              {posts.map((post, i) => (
-                <PostCard key={post.id} post={post} index={i} />
-              ))}
-            </div>
+            <>
+              <Reveal>
+                <Link to={`/blog/${featured.slug}`} className="dg-featured-post">
+                  <Cover post={featured} big />
+                  <div className="body">
+                    <span className="dg-post-tag">{featured.category}</span>
+                    <h2>{featured.title}</h2>
+                    <p className="dg-item-body">{featured.excerpt}</p>
+                    <div className="dg-post-meta"><span>{fmtDate(featured.date)}</span><span>{featured.minutes} min read</span><span>{featured.author}</span></div>
+                  </div>
+                </Link>
+              </Reveal>
+
+              {active ? (
+                <div className="dg-grid dg-grid-3" style={{ marginTop: 28 }}>{rest.map((p, i) => <PostCard key={p.slug} post={p} i={i} />)}</div>
+              ) : (
+                <>
+                  <div className="dg-row-head"><h2>The latest</h2></div>
+                  <div className="dg-grid dg-grid-3">{rest.slice(0, 6).map((p, i) => <PostCard key={p.slug} post={p} i={i} />)}</div>
+                  {cats.map((c) => {
+                    const inCat = posts.filter((p) => p.category === c).slice(0, 3);
+                    if (!inCat.length) return null;
+                    return (
+                      <div key={c}>
+                        <div className="dg-row-head"><h2>{c}</h2><Link to={`/blog/category/${slugify(c)}`}>View all →</Link></div>
+                        <div className="dg-grid dg-grid-3">{inCat.map((p, i) => <PostCard key={p.slug} post={p} i={i} />)}</div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -266,283 +149,119 @@ function BlogListing() {
   );
 }
 
-function SinglePost({ slug }: { slug: string }) {
+function Article({ slug }: { slug: string }) {
   const { navigate } = useRouter();
-  const [post, setPost] = useState<BlogPost | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const posts = usePosts();
+  const local = fromStatic.find((p) => p.slug === slug);
+  const [remote, setRemote] = useState<Post | null | undefined>(local ? null : undefined);
+  const [activeId, setActiveId] = useState("");
 
   useEffect(() => {
-    setLoading(true);
-    setNotFound(false);
-    fetch(`${API}/api/blog/${encodeURIComponent(slug)}`)
-      .then((r) => {
-        if (!r.ok) { setNotFound(true); return null; }
-        return r.json();
-      })
-      .then((d) => { if (d?.post) setPost(d.post); })
-      .catch(() => setNotFound(true))
-      .finally(() => setLoading(false));
-  }, [slug]);
+    if (local) return;
+    fetch(`/api/blog/${encodeURIComponent(slug)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setRemote(d?.post ? {
+        slug, title: d.post.title, excerpt: d.post.excerpt || "", author: d.post.author || "DIGIRINGO Team",
+        category: String(d.post.tags || "").split(",")[0]?.trim() || "News", date: d.post.created_at, minutes: 4, html: d.post.body, cover: d.post.cover_url,
+      } : null))
+      .catch(() => setRemote(null));
+  }, [slug, local]);
 
-  if (loading) {
-    return (
-      <section
-        className="dg-section"
-        style={{
-          paddingTop: "calc(var(--nav-h) + clamp(40px,8vw,60px))",
-          paddingBottom: 60,
-        }}
-      >
-        <div className="dg-wrap" style={{ maxWidth: 820, margin: "0 auto" }}>
-          <Skeleton height={24} radius={8} />
-          <div style={{ marginTop: 32 }}>
-            <Skeleton height={380} />
-          </div>
-          <div style={{ marginTop: 24 }}>
-            <Skeleton height={36} radius={8} />
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <Skeleton height={200} radius={8} />
-          </div>
-        </div>
-      </section>
-    );
-  }
+  const post = local ?? remote ?? undefined;
+  const rendered = useMemo(() => (post?.md ? renderMarkdown(post.md) : null), [post?.md]);
+  const faqs = useMemo(() => (post?.md ? extractFaq(post.md) : []), [post?.md]);
+  usePageMeta(post ? `${post.title} | DIGIRINGO` : undefined, post?.excerpt);
 
-  if (notFound || !post) {
-    return (
-      <section
-        className="dg-section"
-        style={{
-          paddingTop: "calc(var(--nav-h) + clamp(40px,8vw,90px))",
-          paddingBottom: 60,
-        }}
-      >
-        <div className="dg-wrap dg-center">
-          <p style={{ fontSize: 48, marginBottom: 16 }}>&#x1F50D;</p>
-          <h2 className="dg-h2">Post not found</h2>
-          <p className="dg-muted" style={{ marginTop: 12 }}>
-            This article may have been removed or the link is incorrect.
-          </p>
-          <button
-            onClick={() => navigate("/blog")}
-            className="dg-btn dg-btn-primary"
-            style={{ marginTop: 24 }}
-          >
-            Back to blog
-          </button>
-        </div>
-      </section>
-    );
-  }
+  // FAQ + Article structured data for search engines.
+  useEffect(() => {
+    if (!post) return;
+    const ld = document.createElement("script");
+    ld.type = "application/ld+json";
+    ld.text = JSON.stringify([
+      { "@context": "https://schema.org", "@type": "Article", headline: post.title, datePublished: post.date, author: { "@type": "Organization", name: post.author }, publisher: { "@type": "Organization", name: "DIGIRINGO" }, description: post.excerpt },
+      ...(faqs.length ? [{ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faqs.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) }] : []),
+    ]);
+    document.head.appendChild(ld);
+    return () => ld.remove();
+  }, [post, faqs]);
+
+  // Highlight the section being read in the table of contents.
+  useEffect(() => {
+    if (!rendered) return;
+    const els = rendered.headings.map((h) => document.getElementById(h.id)).filter(Boolean) as HTMLElement[];
+    const io = new IntersectionObserver((entries) => {
+      const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (vis) setActiveId(vis.target.id);
+    }, { rootMargin: "-120px 0px -60% 0px" });
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [rendered]);
+
+  if (post === undefined && remote === undefined) return <div className="dg-page-loading" />;
+  if (!post) return <NotFound />;
+
+  // Drop the FAQ section from the body — it renders as an accordion below.
+  const bodyHtml = rendered ? rendered.html.split(/<h2 id="frequently-asked-questions">/)[0] : post.html ?? "";
+  const related = posts.filter((p) => p.slug !== post.slug && p.category === post.category).slice(0, 3);
+  const more = related.length < 3 ? posts.filter((p) => p.slug !== post.slug && !related.includes(p)).slice(0, 3 - related.length) : [];
 
   return (
     <>
-      <style>{`
-        @keyframes blogPulse {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 0.7; }
-        }
-        .dg-blog-body { max-width: 720px; margin: 0 auto; color: var(--text); font-size: 16.5px; line-height: 1.8; }
-        .dg-blog-body h1 { font-size: 28px; font-weight: 800; margin: 40px 0 16px; line-height: 1.3; }
-        .dg-blog-body h2 { font-size: 24px; font-weight: 800; margin: 36px 0 14px; line-height: 1.3; }
-        .dg-blog-body h3 { font-size: 20px; font-weight: 700; margin: 28px 0 12px; line-height: 1.35; }
-        .dg-blog-body h4 { font-size: 17px; font-weight: 700; margin: 24px 0 10px; }
-        .dg-blog-body p { margin: 0 0 18px; }
-        .dg-blog-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-        .dg-blog-body a:hover { opacity: 0.8; }
-        .dg-blog-body ul, .dg-blog-body ol { margin: 0 0 18px; padding-left: 24px; }
-        .dg-blog-body li { margin-bottom: 8px; }
-        .dg-blog-body blockquote {
-          border-left: 3px solid var(--accent);
-          margin: 24px 0;
-          padding: 16px 20px;
-          background: rgba(124,92,255,0.06);
-          border-radius: 0 12px 12px 0;
-          font-style: italic;
-          color: var(--muted);
-        }
-        .dg-blog-body blockquote p { margin-bottom: 0; }
-        .dg-blog-body code {
-          background: rgba(124,92,255,0.1);
-          padding: 2px 7px;
-          border-radius: 6px;
-          font-size: 14px;
-          font-family: 'JetBrains Mono', monospace;
-        }
-        .dg-blog-body pre {
-          background: rgba(0,0,0,0.3);
-          border: 1px solid var(--line);
-          border-radius: 14px;
-          padding: 18px 22px;
-          overflow-x: auto;
-          margin: 24px 0;
-          font-size: 14px;
-          line-height: 1.6;
-        }
-        .dg-blog-body pre code { background: none; padding: 0; font-size: inherit; }
-        .dg-blog-body img { max-width: 100%; border-radius: 14px; margin: 24px 0; }
-        .dg-blog-body hr { border: none; border-top: 1px solid var(--line); margin: 32px 0; }
-        .dg-blog-body table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 14.5px; }
-        .dg-blog-body th, .dg-blog-body td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); }
-        .dg-blog-body th { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
-      `}</style>
-
-      <section
-        className="dg-section"
-        style={{
-          paddingTop: "calc(var(--nav-h) + clamp(30px,6vw,50px))",
-          paddingBottom: 60,
-        }}
-      >
-        <div className="dg-wrap" style={{ maxWidth: 820, margin: "0 auto" }}>
-          <Reveal>
-            <button
-              onClick={() => navigate("/blog")}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                color: "var(--muted)",
-                fontSize: 14,
-                fontWeight: 600,
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: 0,
-                marginBottom: 28,
-                transition: "color 0.2s",
-              }}
-              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = "var(--text)")}
-              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = "var(--muted)")}
-            >
-              <ArrowLeft size={16} /> Back to blog
-            </button>
-          </Reveal>
-
-          {/* Cover */}
-          {post.cover && (
-            <Reveal>
-              <div
-                style={{
-                  width: "100%",
-                  maxHeight: 400,
-                  borderRadius: 20,
-                  overflow: "hidden",
-                  marginBottom: 32,
-                }}
-              >
-                <img
-                  src={post.cover}
-                  alt={post.title}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    maxHeight: 400,
-                    objectFit: "cover",
-                    display: "block",
-                  }}
-                />
-              </div>
-            </Reveal>
-          )}
-
-          {/* Header */}
-          <Reveal delay={80}>
-            <div style={{ marginBottom: 32 }}>
-              {post.tags.length > 0 && (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    flexWrap: "wrap",
-                    marginBottom: 16,
-                  }}
-                >
-                  {post.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        background: "rgba(124,92,255,0.12)",
-                        color: "var(--accent)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        padding: "5px 12px",
-                        borderRadius: 20,
-                        textTransform: "uppercase",
-                        letterSpacing: 0.5,
-                      }}
-                    >
-                      <Tag size={11} /> {tag}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <h1
-                className="dg-h1"
-                style={{
-                  fontSize: "clamp(28px,5vw,48px)",
-                  lineHeight: 1.2,
-                  marginBottom: 16,
-                }}
-              >
-                {post.title}
-              </h1>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 18,
-                  color: "var(--muted)",
-                  fontSize: 14,
-                  flexWrap: "wrap",
-                }}
-              >
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <User size={15} /> {post.author}
-                </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Calendar size={15} /> {fmtDate(post.created_at)}
-                </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Clock size={15} /> {readTime(post.body)}
-                </span>
-              </div>
+      <section className="dg-block" style={{ paddingTop: "calc(var(--nav-h) + clamp(30px,5vw,56px))", paddingBottom: 40 }}>
+        <div className="dg-wrap" style={{ maxWidth: 1120 }}>
+          <button onClick={() => navigate("/blog")} className="dg-more" style={{ background: "none", border: "none", padding: 0, marginBottom: 22, cursor: "pointer" }}>
+            <ArrowLeft size={15} /> Blog
+          </button>
+          <div style={{ maxWidth: 820 }}>
+            <Link to={`/blog/category/${slugify(post.category)}`} className="dg-post-tag">{post.category}</Link>
+            <h1 className="dg-h1b" style={{ fontSize: "clamp(32px,4.6vw,52px)", marginTop: 12 }}>{post.title}</h1>
+            <p className="dg-lead-b">{post.excerpt}</p>
+            <div className="dg-post-meta" style={{ marginTop: 20, fontSize: 14 }}>
+              <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><User size={15} /> {post.author}</span>
+              <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><Calendar size={15} /> {fmtDate(post.date)}</span>
+              <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><Clock size={15} /> {post.minutes} min read</span>
             </div>
-          </Reveal>
+          </div>
+          {post.cover && <div style={{ marginTop: 34, borderRadius: 24, overflow: "hidden" }}><Cover post={post} big /></div>}
 
-          {/* Article body */}
-          <Reveal delay={150}>
-            <div
-              className="dg-blog-body"
-              dangerouslySetInnerHTML={{ __html: post.body }}
+          <div className="dg-article" style={{ marginTop: 44 }}>
+            <article
+              className="dg-md"
+              dangerouslySetInnerHTML={{ __html: bodyHtml }}
+              onClick={(e) => {
+                // Internal links inside the article body go through the router (no full reload).
+                const a = (e.target as HTMLElement).closest("a");
+                const href = a?.getAttribute("href") || "";
+                if (!a || !href.startsWith("/") || href.startsWith("/app") || e.metaKey || e.ctrlKey) return;
+                e.preventDefault();
+                navigate(href);
+              }}
             />
-          </Reveal>
+            <aside className="dg-article-side">
+              {rendered && rendered.headings.length > 1 && (
+                <nav className="dg-toc" aria-label="Table of contents">
+                  <h6>On this page</h6>
+                  {rendered.headings.filter((h) => h.id !== "frequently-asked-questions").map((h) => (
+                    <a key={h.id} href={`#${h.id}`} className={activeId === h.id ? "on" : ""}>{h.text}</a>
+                  ))}
+                </nav>
+              )}
+              <div className="dg-side-cta">
+                <h6>Get a business number</h6>
+                <p>Local, toll-free or international. Live in a minute, from $2.50/month.</p>
+                <a href="/app">Get started</a>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
 
-          {/* Footer nav */}
-          <Reveal delay={200}>
-            <div
-              style={{
-                marginTop: 48,
-                paddingTop: 28,
-                borderTop: "1px solid var(--line)",
-                textAlign: "center",
-              }}
-            >
-              <button
-                onClick={() => navigate("/blog")}
-                className="dg-btn dg-btn-primary"
-              >
-                <ArrowLeft size={15} /> All posts
-              </button>
-            </div>
-          </Reveal>
+      {faqs.length > 0 && <section className="dg-block dg-tone-tint" style={{ paddingTop: 64 }}><div className="dg-wrap"><FaqList items={faqs} /></div></section>}
+
+      <section className="dg-block">
+        <div className="dg-wrap">
+          <div className="dg-row-head" style={{ marginTop: 0 }}><h2>Keep reading</h2><Link to="/blog">All posts →</Link></div>
+          <div className="dg-grid dg-grid-3">{[...related, ...more].map((p, i) => <PostCard key={p.slug} post={p} i={i} />)}</div>
         </div>
       </section>
     </>
@@ -551,18 +270,8 @@ function SinglePost({ slug }: { slug: string }) {
 
 export function BlogPage() {
   const { route } = useRouter();
-  const match = route.match(/^\/blog\/(.+)$/);
-  const slug = match?.[1] ?? null;
-
-  return (
-    <>
-      <style>{`
-        @keyframes blogPulse {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 0.7; }
-        }
-      `}</style>
-      {slug ? <SinglePost slug={slug} /> : <BlogListing />}
-    </>
-  );
+  const cat = route.match(/^\/blog\/category\/([a-z0-9-]+)$/);
+  if (cat) return <BlogIndex category={cat[1]} />;
+  const m = route.match(/^\/blog\/([a-z0-9-]+)$/);
+  return m ? <Article key={m[1]} slug={m[1]} /> : <BlogIndex />;
 }

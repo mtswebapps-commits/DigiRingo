@@ -1,382 +1,251 @@
-import {
-  Hash,
-  MessageSquare,
-  PhoneCall,
-  Wallet,
-  ShieldCheck,
-  Globe,
-  ArrowRight,
-  Star,
-  Check,
-} from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, Check, Globe, Monitor, Smartphone } from "lucide-react";
 import { Reveal } from "../components/Reveal";
-import { PhoneFrame } from "../components/PhoneFrame";
 import { HeroPhones } from "../components/HeroPhones";
 import { PixelRipple } from "../components/PixelRipple";
-import { CountUpStat } from "../components/CountUpStat";
-import { LinkButton, SectionIntro } from "../components/ui";
+import { PhoneFrame } from "../components/PhoneFrame";
 import { Link } from "../router";
-import { COUNTRIES, STATS, FEATURES, STEPS, SHOTS } from "../data";
+import { Icon } from "../components/Icon";
+import { FaqList, ReadyBand, StatusBadge } from "../components/blocks";
+import { COUNTRIES, FAQS } from "../data";
+import { usePageMeta } from "../lib/seo";
+import type { IconName, Shot, Status } from "../content/types";
 
-const ICONS: Record<string, typeof Hash> = { Hash, MessageSquare, PhoneCall, Wallet, ShieldCheck, Globe };
+const TRIO: { title: string; body: string; icon: IconName; href: string; status?: Status }[] = [
+  { title: "Bring your AI agent", body: "Point any number at your own voice AI or SIP agent and let it pick up.", icon: "bot", href: "/ai-agent", status: "beta" },
+  { title: "Never miss a call", body: "Every device rings, then your cellphone, then voicemail.", icon: "phone-incoming", href: "/product/call-management/never-miss-a-call" },
+  { title: "Numbers worldwide", body: "Local, toll-free and international numbers, all in one app.", icon: "globe", href: "/phone-numbers" },
+];
+
+const GRID: { title: string; body: string; shot: Shot; href: string }[] = [
+  { title: "Get a number in a minute", body: "Search local, toll-free and international numbers and go live straight away.", shot: "buy", href: "/phone-numbers" },
+  { title: "Calls that follow you", body: "Answer in the browser or on Android, or have calls forwarded to your cell.", shot: "calls", href: "/product/calling" },
+  { title: "Texting that's registered", body: "Two-way SMS with 10DLC registration built into the Trust Center.", shot: "chat", href: "/product/messaging" },
+  { title: "Route each number your way", body: "Ring the app, forward to a phone, or send to your SIP agent or webhook.", shot: "settings", href: "/product/call-routing" },
+  { title: "Every call in one history", body: "Missed, answered and forwarded calls, with one-tap call back.", shot: "activity", href: "/product/call-analytics/call-logs" },
+  { title: "Pay only for what you use", body: "A prepaid wallet with itemised charges. No seats, no contracts.", shot: "wallet", href: "/pricing" },
+];
+
+const SOLUTIONS: { label: string; href: string; icon: IconName; line: string; shot: Shot }[] = [
+  { label: "Home services", href: "/solutions/home-services", icon: "wrench", line: "Catch the emergency call while you're under a sink — it rings your cell when the app can't.", shot: "calls" },
+  { label: "Law firms", href: "/solutions/law-firms", icon: "scale", line: "Give each practice area its own number and keep client calls off personal phones.", shot: "numbers" },
+  { label: "Property management", href: "/solutions/property-management", icon: "building", line: "One number per building, so tenants always know who to call — and you know which property it's about.", shot: "inbox" },
+  { label: "Healthcare", href: "/solutions/healthcare", icon: "stethoscope", line: "A front-desk line that rings every device, with forwarding to the on-call phone after hours.", shot: "dialer" },
+  { label: "Startups", href: "/solutions/startups", icon: "rocket", line: "Look established from day one with local numbers in the cities you sell to.", shot: "home" },
+  { label: "Sales", href: "/solutions/sales", icon: "dollar", line: "Call prospects from a local number in their area code, from your laptop.", shot: "dialer" },
+  { label: "Support", href: "/solutions/support", icon: "headphones", line: "A toll-free line customers can call free, answered wherever your team is.", shot: "calls" },
+];
+
+const PRICE_FACTS = [
+  { big: "$2.50", small: "per US number a month" },
+  { big: "$0.015", small: "per minute or text, US & Canada" },
+  { big: "$0", small: "per-user or setup fees" },
+];
 
 export function HomePage() {
+  usePageMeta(undefined, "Business phone numbers for calls and texts. Local, toll-free and international numbers that ring your browser, Android app and cellphone. Pay as you go.");
+  const [sol, setSol] = useState(0);
+  const s = SOLUTIONS[sol];
+
   return (
     <>
       {/* ---------------------------------------------------------------- HERO */}
-      <section
-        className="dg-hero-ripple"
-        style={{
-          position: "relative",
-          overflow: "hidden",
-          textAlign: "center",
-          paddingTop: "calc(var(--nav-h) + clamp(72px, 12vw, 150px))",
-          paddingBottom: "clamp(56px, 9vw, 120px)",
-        }}
-      >
+      <section className="dg-hero-ripple" style={{ position: "relative", overflow: "hidden", textAlign: "center", paddingTop: "calc(var(--nav-h) + clamp(64px, 10vw, 128px))", paddingBottom: "clamp(40px, 6vw, 72px)" }}>
         <PixelRipple />
         <div className="dg-wrap" style={{ position: "relative", zIndex: 1 }}>
-          <Reveal>
-            <span className="dg-eyebrow">
-              <Star size={13} fill="currentColor" /> Your number. Anywhere on Earth.
-            </span>
-          </Reveal>
+          <Reveal><span className="dg-eyebrow">Business phone, minus the phone bill</span></Reveal>
           <Reveal delay={90}>
             <h1 className="dg-h1" style={{ marginTop: 26, maxWidth: 1000, marginLeft: "auto", marginRight: "auto" }}>
-              Borderless.<br />
-              <span className="dg-grad-text">Effortless.</span>
+              Your business line,<br /><span className="dg-grad-text">wherever you are.</span>
             </h1>
           </Reveal>
           <Reveal delay={170}>
-            <p className="dg-lead" style={{ marginTop: 24, maxWidth: 600, marginLeft: "auto", marginRight: "auto" }}>
-              One app for every number — call, text and manage real local lines in 8+ countries.
-              No SIM, no contract, no second phone.
+            <p className="dg-lead" style={{ marginTop: 24, maxWidth: 640, marginLeft: "auto", marginRight: "auto" }}>
+              Get local, toll-free and international numbers. Call and text from your browser or Android phone, and never let a customer reach a dead line.
             </p>
           </Reveal>
           <Reveal delay={250}>
             <div style={{ display: "flex", gap: 12, marginTop: 36, flexWrap: "wrap", justifyContent: "center" }}>
-              <LinkButton to="/signup" variant="primary" size="lg">
-                Get started free <ArrowRight size={17} />
-              </LinkButton>
-              <LinkButton to="/pricing" variant="ghost" size="lg">
-                See pricing
-              </LinkButton>
+              <a href="/app" className="dg-btn dg-btn-primary dg-btn-lg">Get started <ArrowRight size={17} /></a>
+              <Link to="/demo" className="dg-btn dg-btn-ghost dg-btn-lg">Take the tour</Link>
             </div>
           </Reveal>
           <Reveal delay={330}>
-            <div style={{ display: "flex", gap: 22, marginTop: 30, flexWrap: "wrap", justifyContent: "center" }}>
-              {["No SIM required", "Cancel anytime", "Live in 60 seconds"].map((t) => (
-                <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13.5, color: "var(--muted)" }}>
-                  <Check size={15} color="var(--green)" /> {t}
-                </span>
-              ))}
+            <div style={{ display: "flex", gap: 22, marginTop: 30, flexWrap: "wrap", justifyContent: "center", color: "var(--muted)", fontSize: 13.5 }}>
+              <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><Monitor size={15} /> Web app</span>
+              <a href="https://play.google.com/store/apps/details?id=com.digiringo.app" target="_blank" rel="noopener" style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><Smartphone size={15} /> Android</a>
+              <Link to="/downloads" className="" ><span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><Globe size={15} /> iPhone via Safari</span></Link>
             </div>
           </Reveal>
         </div>
       </section>
 
-      {/* ----------------------------------------------------- COUNTRY MARQUEE */}
-      <section style={{ padding: "8px 0 36px" }}>
+      <section className="dg-section" style={{ paddingTop: 8, paddingBottom: 24 }}>
+        <div className="dg-wrap"><HeroPhones /></div>
+      </section>
+
+      {/* ---------------------------------------------------------------- TRIO */}
+      <section className="dg-block">
         <div className="dg-wrap">
           <Reveal>
-            <p className="dg-center dg-muted" style={{ fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 22 }}>
-              Local numbers available in
-            </p>
+            <div className="dg-block-head center">
+              <span className="dg-eyebrow">Built for small teams</span>
+              <h2 className="dg-h2b" style={{ marginTop: 18 }}>Answer more calls with less effort</h2>
+            </div>
           </Reveal>
+          <div className="dg-grid dg-grid-3">
+            {TRIO.map((t, i) => (
+              <Reveal key={t.title} delay={i * 70}>
+                <Link to={t.href} className="dg-card dg-card-b link">
+                  <div className="dg-card-icon sm"><Icon name={t.icon} /></div>
+                  <h3 className="dg-item-title">{t.title} <StatusBadge status={t.status} /></h3>
+                  <p className="dg-item-body">{t.body}</p>
+                  <span className="dg-more">Learn more <ArrowRight size={15} /></span>
+                </Link>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------- COUNTRIES */}
+      <section style={{ padding: "8px 0 48px" }}>
+        <div className="dg-wrap">
+          <p className="dg-center dg-muted" style={{ fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 22 }}>Numbers available in</p>
         </div>
         <div className="dg-marquee">
           <div className="dg-marquee-track">
             {[...COUNTRIES, ...COUNTRIES].map((c, i) => (
-              <span className="dg-flagchip" key={i}>
-                <span className="flag">{c.flag}</span> {c.name}
-              </span>
+              <span className="dg-flagchip" key={i}><span className="flag">{c.flag}</span> {c.name}</span>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ------------------------------------------------------ PRODUCT PREVIEW */}
-      <section className="dg-section" style={{ paddingTop: 24, paddingBottom: 24 }}>
-        <div className="dg-wrap">
-          <HeroPhones />
-        </div>
-      </section>
-
-      {/* -------------------------------------------------------------- STATS */}
-      <section className="dg-section" style={{ paddingTop: 60, paddingBottom: 60 }}>
-        <div className="dg-wrap">
-          <div className="dg-grid dg-grid-4">
-            {STATS.map((s, i) => (
-              <Reveal key={s.label} delay={i * 80}>
-                <div className="dg-card dg-center" style={{ padding: "30px 18px" }}>
-                  <CountUpStat value={s.num} className="dg-stat-num grad" />
-                  <p className="dg-muted" style={{ fontSize: 13.5, marginTop: 8 }}>{s.label}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ----------------------------------------------------------- FEATURES */}
-      <section className="dg-section" id="features">
+      {/* -------------------------------------------------------- FEATURE GRID */}
+      <section className="dg-block dg-tone-tint">
         <div className="dg-wrap">
           <Reveal>
-            <SectionIntro
-              eyebrow="Everything you need"
-              title={<>One app. <span className="dg-grad-text">Every number you’ll ever need.</span></>}
-              lead="From your first local line to a full business presence across continents — DIGIRINGO keeps it effortless."
-            />
-          </Reveal>
-          <div className="dg-grid dg-grid-3" style={{ marginTop: 56 }}>
-            {FEATURES.map((f, i) => {
-              const Icon = ICONS[f.icon] ?? Hash;
-              return (
-                <Reveal key={f.title} delay={(i % 3) * 90}>
-                  <div className="dg-card" style={{ height: "100%" }}>
-                    <div className="dg-card-icon"><Icon size={22} /></div>
-                    <h3 className="dg-h3">{f.title}</h3>
-                    <p className="dg-muted" style={{ fontSize: 14.5, lineHeight: 1.6, marginTop: 10 }}>{f.body}</p>
-                  </div>
-                </Reveal>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* ----------------------------------------------- SHOWCASE (REVault-style) */}
-      <Showcase
-        eyebrow="Buy in seconds"
-        title={<>Pick a number. <span className="dg-grad-text">It’s yours instantly.</span></>}
-        body="Browse live local and mobile numbers across 8+ countries. Filter by area code, see what supports SMS, and own it with a single tap — your wallet handles the rest."
-        points={["Live inventory from real carriers", "Local & mobile options explained", "Pay from your prepaid wallet"]}
-        shot={SHOTS.buy}
-        caption="Buy a number"
-      />
-      <Showcase
-        reverse
-        eyebrow="Messaging"
-        title={<>Texts, organised the <span className="dg-grad-text">way you think.</span></>}
-        body="Every number gets its own inbox with threaded conversations and delivery receipts. Switch between lines from a tidy drawer — work, family and side-project, never tangled."
-        points={["Per-number inboxes", "Delivery & read receipts", "Snippets for quick replies"]}
-        shot={SHOTS.chat}
-        caption="Inbox"
-      />
-      <Showcase
-        eyebrow="Calling"
-        title={<>Dial out from <span className="dg-grad-text">any of your numbers.</span></>}
-        body="A full keypad with a ‘calling from’ selector lets you place HD calls on whichever line fits the moment. Your call log keeps a clean record of everything."
-        points={["HD voice over the internet", "Choose the line you call from", "Searchable call history"]}
-        shot={SHOTS.dialer}
-        caption="Dialer"
-      />
-
-      {/* ----------------------------------------------------------- HOW IT WORKS */}
-      <section className="dg-section">
-        <div className="dg-wrap">
-          <Reveal>
-            <SectionIntro
-              eyebrow="How it works"
-              title="Live in four simple steps"
-              lead="From download to your first text in under a minute."
-            />
-          </Reveal>
-          <div className="dg-grid dg-grid-4" style={{ marginTop: 56 }}>
-            {STEPS.map((s, i) => (
-              <Reveal key={s.n} delay={i * 90}>
-                <div className="dg-card" style={{ height: "100%" }}>
-                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, color: "var(--blue)", fontWeight: 600 }}>{s.n}</div>
-                  <h3 className="dg-h3" style={{ marginTop: 14, fontSize: 19 }}>{s.title}</h3>
-                  <p className="dg-muted" style={{ fontSize: 14, lineHeight: 1.6, marginTop: 8 }}>{s.body}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* --------------------------------------------------------- DOWNLOAD APP */}
-      <section className="dg-section" style={{ paddingTop: 60, paddingBottom: 60 }}>
-        <div className="dg-wrap">
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "1fr auto",
-            gap: 48,
-            alignItems: "center",
-            position: "relative",
-            overflow: "hidden",
-            borderRadius: 32,
-            padding: "60px 56px",
-            background: "linear-gradient(160deg, #080e1f 0%, #111638 35%, #1a0e3a 65%, #0d1428 100%)",
-            border: "1px solid rgba(124,92,255,0.15)",
-          }}>
-            {/* Decorative blurred orbs */}
-            <div style={{ position: "absolute", top: -120, right: -80, width: 360, height: 360, borderRadius: "50%", background: "radial-gradient(circle, rgba(124,92,255,0.12) 0%, transparent 70%)", pointerEvents: "none" }} />
-            <div style={{ position: "absolute", bottom: -100, left: -60, width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle, rgba(79,142,247,0.08) 0%, transparent 70%)", pointerEvents: "none" }} />
-
-            {/* Left: Text content */}
-            <Reveal style={{ position: "relative", zIndex: 1 }}>
-              <div>
-                <span style={{
-                  display: "inline-flex", alignItems: "center", gap: 8,
-                  padding: "7px 16px", borderRadius: 999,
-                  background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)",
-                  color: "#22c55e", fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase",
-                }}>
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e" }} />
-                  Now on Google Play
-                </span>
-
-                <h2 style={{
-                  color: "#fff", fontSize: "clamp(30px, 3.8vw, 48px)", fontWeight: 800,
-                  lineHeight: 1.15, letterSpacing: "-0.03em", marginTop: 24,
-                }}>
-                  Your second number,<br />
-                  <span style={{ background: "linear-gradient(135deg, #4f8ef7 0%, #7c5cff 50%, #b06aff 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>always in your pocket</span>
-                </h2>
-
-                <p style={{
-                  color: "rgba(255,255,255,0.6)", fontSize: 17, lineHeight: 1.7,
-                  marginTop: 18, maxWidth: 420,
-                }}>
-                  Call, text, and manage all your numbers from one app. Top up your wallet, pick a number, and start talking — no SIM, no contract.
-                </p>
-
-                {/* Feature pills */}
-                <div style={{ display: "flex", gap: 10, marginTop: 28, flexWrap: "wrap" }}>
-                  {["4 MB download", "Works offline", "Dark theme"].map(t => (
-                    <span key={t} style={{
-                      padding: "6px 14px", borderRadius: 999,
-                      background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)",
-                      color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: 600,
-                    }}>{t}</span>
-                  ))}
-                </div>
-
-                {/* Google Play button */}
-                <a
-                  href="https://play.google.com/store/apps/details?id=com.digiringo.app"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 16,
-                    marginTop: 36, padding: "14px 32px 14px 24px", borderRadius: 14,
-                    background: "#fff", color: "#111", textDecoration: "none",
-                    boxShadow: "0 4px 24px rgba(0,0,0,0.3)",
-                    transition: "transform 0.2s, box-shadow 0.2s",
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px) scale(1.02)"; e.currentTarget.style.boxShadow = "0 8px 32px rgba(0,0,0,0.4)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0) scale(1)"; e.currentTarget.style.boxShadow = "0 4px 24px rgba(0,0,0,0.3)"; }}
-                >
-                  <svg width="28" height="28" viewBox="0 0 512 512"><path fill="#4285F4" d="M386.5 257l-105-61 32-32 115 64c7 4 7 12 0 16l-42 23z"/><path fill="#34A853" d="M281.5 196l-250 145c-4 2-9 1-11-3l261-261 32 32-32 87z"/><path fill="#FBBC04" d="M313.5 109L52.5 370c2 4 7 5 11 3l250-145 32-32-32-87z"/><path fill="#EA4335" d="M281.5 316l105-61 42 23c7 4 7 12 0 16l-115 64-32-32v-10z"/><path fill="#34A853" d="M20.5 142c-2 5-3 11-3 17v194c0 6 1 12 3 17l261-261-261 33z"/></svg>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: "#666", letterSpacing: 0.5, textTransform: "uppercase" }}>Get it on</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5, marginTop: -2 }}>Google Play</div>
-                  </div>
-                </a>
-
-                <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, marginTop: 16 }}>
-                  Requires Android 7.0+ &middot; Free to download
-                </p>
-              </div>
-            </Reveal>
-
-            {/* Right: Phone mockup */}
-            <Reveal delay={150} style={{ position: "relative", zIndex: 1 }}>
-              <div style={{ position: "relative" }}>
-                {/* Glow behind phone */}
-                <div style={{
-                  position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-                  width: 280, height: 400, borderRadius: "50%",
-                  background: "radial-gradient(circle, rgba(124,92,255,0.2) 0%, rgba(79,142,247,0.08) 50%, transparent 70%)",
-                  pointerEvents: "none", filter: "blur(40px)",
-                }} />
-                <PhoneFrame src={SHOTS.home} caption="" glow={false} />
-              </div>
-            </Reveal>
-          </div>
-        </div>
-
-        {/* Mobile: stacked layout override */}
-        <style>{`
-          @media (max-width: 768px) {
-            .dg-section > .dg-wrap > [style*="grid-template-columns: 1fr auto"] {
-              grid-template-columns: 1fr !important;
-              padding: 40px 24px !important;
-              text-align: center;
-            }
-            .dg-section > .dg-wrap > [style*="grid-template-columns: 1fr auto"] .dg-phone-wrap {
-              margin: 0 auto;
-            }
-          }
-        `}</style>
-      </section>
-
-      {/* -------------------------------------------------------------- CTA BAND */}
-      <section className="dg-section" style={{ paddingTop: 20 }}>
-        <div className="dg-wrap">
-          <Reveal>
-            <div className="dg-cta-band">
-              <h2 className="dg-h2" style={{ maxWidth: 720, margin: "0 auto" }}>
-                Ready to claim your <span className="dg-grad-text">borderless number?</span>
-              </h2>
-              <p className="dg-lead" style={{ margin: "20px auto 0", maxWidth: 520 }}>
-                Join DIGIRINGO today. Your first number is minutes away.
-              </p>
-              <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 32, flexWrap: "wrap" }}>
-                <LinkButton to="/signup" variant="primary" size="lg">
-                  Get started free <ArrowRight size={17} />
-                </LinkButton>
-                <Link to="/contact" className="dg-btn dg-btn-ghost dg-btn-lg">Talk to us</Link>
-              </div>
+            <div className="dg-block-head center">
+              <h2 className="dg-h2b">Everything a business line needs</h2>
+              <p className="dg-lead-b">One app for your numbers, calls, texts and voicemail — on the devices you already own.</p>
             </div>
           </Reveal>
+          <div className="dg-grid dg-grid-3">
+            {GRID.map((g, i) => (
+              <Reveal key={g.title} delay={(i % 3) * 70}>
+                <Link to={g.href} className="dg-card dg-card-b link" >
+                  <h3 className="dg-item-title">{g.title}</h3>
+                  <p className="dg-item-body">{g.body}</p>
+                  <div style={{ marginTop: 22, height: 230, overflow: "hidden", display: "flex", justifyContent: "center" }}>
+                    <PhoneFrame src={`/shots/${g.shot}.png`} glow={false} style={{ width: 210 }} />
+                  </div>
+                </Link>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
+
+      {/* ------------------------------------------------------------ HOW IT WORKS */}
+      <section className="dg-block dg-tone-dark">
+        <div className="dg-wrap">
+          <Reveal>
+            <div className="dg-block-head center">
+              <h2 className="dg-h2b">Live in four steps</h2>
+              <p className="dg-lead-b">No hardware, no paperwork for US numbers, no waiting on a technician.</p>
+            </div>
+          </Reveal>
+          <div className="dg-steps">
+            {[
+              ["Sign up", "Email or Google — under a minute."],
+              ["Pick a number", "Search by area code, city or digits."],
+              ["Top up from $5", "Pay by card; every charge is itemised."],
+              ["Call and text", "Browser, Android, and your cell as backup."],
+            ].map(([t, b], i) => (
+              <Reveal key={t} delay={i * 70}>
+                <div className="dg-step"><span className="dg-step-n">{i + 1}</span><h3 className="dg-item-title">{t}</h3><p className="dg-item-body">{b}</p></div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------- PRICING BAND */}
+      <section className="dg-block">
+        <div className="dg-wrap">
+          <Reveal>
+            <div className="dg-block-head center">
+              <h2 className="dg-h2b">Simple, usage-based pricing</h2>
+              <p className="dg-lead-b">Pay for your numbers and what you use. Nothing per seat, nothing locked in.</p>
+            </div>
+          </Reveal>
+          <div className="dg-grid dg-grid-3">
+            {PRICE_FACTS.map((p, i) => (
+              <Reveal key={p.small} delay={i * 70}>
+                <div className="dg-card dg-card-b" style={{ textAlign: "center" }}>
+                  <div className="dg-big grad">{p.big}</div>
+                  <p className="dg-item-body" style={{ marginTop: 10 }}>{p.small}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 32, flexWrap: "wrap" }}>
+            <Link to="/pricing" className="dg-btn dg-btn-primary">See pricing</Link>
+            <Link to="/rates" className="dg-btn dg-btn-ghost">International rates</Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------- SOLUTIONS */}
+      <section className="dg-block dg-tone-tint">
+        <div className="dg-wrap">
+          <Reveal>
+            <div className="dg-block-head center">
+              <h2 className="dg-h2b">Made for the way your business runs</h2>
+            </div>
+          </Reveal>
+          <div className="dg-chips center" style={{ marginBottom: 32 }}>
+            {SOLUTIONS.map((x, i) => (
+              <button key={x.label} className={`dg-chip link${i === sol ? " on" : ""}`} onClick={() => setSol(i)}
+                style={i === sol ? { borderColor: "var(--blue)", color: "var(--text)" } : undefined}>
+                <Icon name={x.icon} size={15} /> {x.label}
+              </button>
+            ))}
+          </div>
+          <div className="dg-split">
+            <div className="dg-split-visual"><PhoneFrame src={`/shots/${s.shot}.png`} glow={false} /></div>
+            <div>
+              <h3 className="dg-h3b">{s.label}</h3>
+              <p className="dg-para">{s.line}</p>
+              <Link to={s.href} className="dg-more">Explore {s.label.toLowerCase()} <ArrowRight size={15} /></Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- WHY LIST */}
+      <section className="dg-block">
+        <div className="dg-wrap dg-split">
+          <div>
+            <h2 className="dg-h2b">Switching is painless</h2>
+            <p className="dg-para">Keep your current line running while you try DIGIRINGO. Forward your old number to your new one and nothing gets missed. Number porting is on the way.</p>
+            <ul className="dg-ticks" style={{ marginTop: 20 }}>
+              {["No contract to sign or cancel", "Works on the phone and laptop you already have", "Live chat support inside the app"].map((t) => <li key={t}><Check size={16} />{t}</li>)}
+            </ul>
+            <div style={{ display: "flex", gap: 12, marginTop: 26, flexWrap: "wrap" }}>
+              <a href="/app" className="dg-btn dg-btn-primary">Get started</a>
+              <Link to="/porting" className="dg-btn dg-btn-ghost">About porting</Link>
+            </div>
+          </div>
+          <div className="dg-split-visual"><PhoneFrame src="/shots/home.png" /></div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------------ FAQ */}
+      <section className="dg-block dg-tone-tint"><div className="dg-wrap"><FaqList items={FAQS.map((f) => ({ q: f.q, a: f.a }))} /></div></section>
+
+      <ReadyBand />
     </>
-  );
-}
-
-/** Alternating image + copy block — the detailed product story sections. */
-function Showcase({
-  eyebrow,
-  title,
-  body,
-  points,
-  shot,
-  caption,
-  reverse = false,
-}: {
-  eyebrow: string;
-  title: React.ReactNode;
-  body: string;
-  points: string[];
-  shot: string;
-  caption: string;
-  reverse?: boolean;
-}) {
-  return (
-    <section className="dg-section" style={{ paddingTop: 40, paddingBottom: 40 }}>
-      <div className="dg-wrap">
-        <div className="dg-showcase">
-          <Reveal style={{ order: reverse ? 2 : 1 }}>
-            <span className="dg-eyebrow">{eyebrow}</span>
-            <h2 className="dg-h2" style={{ marginTop: 20, fontSize: "clamp(28px,3.6vw,44px)" }}>{title}</h2>
-            <p className="dg-lead" style={{ marginTop: 18, fontSize: 17 }}>{body}</p>
-            <div style={{ marginTop: 22 }}>
-              {points.map((p) => (
-                <div className="dg-feat-li" key={p} style={{ color: "var(--text)" }}>
-                  <Check size={18} /> {p}
-                </div>
-              ))}
-            </div>
-          </Reveal>
-          <Reveal delay={120} style={{ order: reverse ? 1 : 2, display: "flex", justifyContent: "center" }}>
-            <PhoneFrame src={shot} caption={caption} />
-          </Reveal>
-        </div>
-      </div>
-    </section>
   );
 }

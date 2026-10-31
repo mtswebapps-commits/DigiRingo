@@ -36,7 +36,7 @@ import { createCheckoutSession as stripeCheckout, verifyWebhook as stripeVerify,
 import { createCheckoutSession as paypalCheckout, captureOrder as paypalCapture, getOrder as paypalGetOrder, orderMetadata as paypalOrderMeta, verifyWebhook as paypalVerify, clientId as paypalClientId, paypalConfigured } from "./paypal.mjs";
 import { freemiusConfigured, verifyWebhook as fsVerifyWebhook, parseEvent as fsParseEvent, grantFor as fsGrantFor, getProductId as fsProductId, getPublicKey as fsPublicKey, getCheckouts as fsCheckouts } from "./freemius.mjs";
 import * as settings from "./settings-store.mjs";
-import { ensureRateDeck, countryCallRates, countrySmsRate } from "./rate-deck.mjs";
+import { ensureRateDeck, countryCallRates, countrySmsRate, deckCountries } from "./rate-deck.mjs";
 import { createTenDlc } from "./tendlc.mjs";
 import { sendFcmToUser, sendFcm, fcmConfigured } from "./fcm.mjs";
 import { authorizeUrl as oauthAuthorizeUrl, exchangeCode as oauthExchangeCode, providerStatus as oauthProviders, isProvider as oauthIsProvider } from "./oauth.mjs";
@@ -272,6 +272,59 @@ async function countryRates(iso) {
     smsTo: iso === "US" || iso === "CA" ? u("sms_local") : (countrySmsRate(iso) != null ? markup(countrySmsRate(iso), 3) : null),
     outbound: { callsPerMin: u("voice"), smsPerMsg: u("sms_local"), tollFreeSmsPerMsg: u("sms_tollfree"), mmsPerMsg: u("mms_out") },
   };
+}
+
+/** Retail call/SMS rates for every country in the deck (site rate list), cached 1h. */
+let allRatesCache = null;
+async function allCountryRates() {
+  if (allRatesCache && Date.now() - allRatesCache.at < 3600_000) return allRatesCache.body;
+  await ensureRateDeck();
+  const countries = [];
+  for (const iso of deckCountries()) {
+    const c = countryCallRates(iso);
+    if (!c?.landline) continue;
+    const domestic = iso === "US" || iso === "CA";
+    const sms = domestic ? WHOLESALE_USAGE.sms_local : countrySmsRate(iso);
+    countries.push({
+      iso, name: c.name, code: c.code,
+      landlinePerMin: markup(domestic ? WHOLESALE_USAGE.voice : c.landline, 3),
+      mobilePerMin: markup(domestic ? WHOLESALE_USAGE.voice : c.mobile, 3),
+      smsPerMsg: sms != null ? markup(sms, 3) : null,
+    });
+  }
+  countries.sort((a, b) => a.name.localeCompare(b.name));
+  const body = { updated: new Date().toISOString(), countries };
+  if (countries.length) allRatesCache = { at: Date.now(), body };
+  return body;
+}
+
+/** A handful of available numbers for the public site search (US/CA local or toll-free). */
+const pubSearchCache = new Map();
+async function publicNumberSearch(q) {
+  const country = q.get("country") === "CA" ? "CA" : "US";
+  const type = q.get("type") === "toll_free" ? "toll_free" : "local";
+  const npa = String(q.get("npa") || "").replace(/\D/g, "").slice(0, 3);
+  const contains = String(q.get("contains") || "").replace(/[^0-9]/g, "").slice(0, 7);
+  const locality = String(q.get("city") || "").replace(/[^A-Za-z .'-]/g, "").slice(0, 40);
+  const key = [country, type, npa, contains, locality].join("|");
+  const hit = pubSearchCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.body;
+  const f = [`filter[country_code]=${country}`, `filter[phone_number_type]=${type}`, "filter[limit]=18"];
+  if (npa.length === 3) f.push(`filter[national_destination_code]=${npa}`);
+  if (contains) f.push(`filter[phone_number][contains]=${contains}`);
+  if (locality && type === "local") f.push(`filter[locality]=${encodeURIComponent(locality)}`);
+  const r = await telnyxFetch(`/available_phone_numbers?${f.join("&")}`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.errors?.[0]?.detail || `Carrier search failed (${r.status})`);
+  const numbers = (j.data || []).map((n) => ({
+    e164: n.phone_number,
+    city: n.region_information?.find((x) => x.region_type === "rate_center")?.region_name?.replace(/:.*$/, "") || null,
+    region: n.region_information?.find((x) => x.region_type === "state")?.region_name || null,
+  }));
+  const body = { country, type, numbers };
+  pubSearchCache.set(key, { at: Date.now(), body });
+  if (pubSearchCache.size > 500) pubSearchCache.delete(pubSearchCache.keys().next().value);
+  return body;
 }
 
 async function fetchTelnyxPricing() {
@@ -2716,6 +2769,33 @@ const handleRequest = async (req, res) => {
     catch (e) { return send(res, 500, { error: e.message }); }
   }
 
+  // ── /api/contact — public contact / sales form → email to the support inbox.
+  if (req.url?.split("?")[0] === "/api/contact" && req.method === "POST") {
+    if (rateLimited(`contact:${clientIp(req)}`, 5, 10 * 60_000)) return send(res, 429, { error: "Too many messages — please try again a little later." });
+    let d; try { d = JSON.parse((await readBody(req)) || "{}"); } catch { d = {}; }
+    const clip = (v, n) => [...String(v ?? "")].map((c) => (c.charCodeAt(0) < 32 ? " " : c)).join("").trim().slice(0, n);
+    const name = clip(d.name, 120), email = clip(d.email, 160), topic = clip(d.topic, 160), company = clip(d.company, 160);
+    const message = String(d.message ?? "").trim().slice(0, 5000);
+    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || message.length < 5) return send(res, 400, { error: "Please add your name, a valid email and a message." });
+    if (d.website) return send(res, 200, { ok: true }); // honeypot field — bots fill it, people never see it
+    if (!mailer) return send(res, 503, { error: "Our contact form is offline — please email support@digiringo.com." });
+    const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    try {
+      await mailer.sendMail({
+        from: process.env.SMTP_FROM || `DIGIRINGO <${process.env.SMTP_USER}>`,
+        to: process.env.CONTACT_TO || "support@digiringo.com",
+        replyTo: email,
+        subject: `[${d.sales ? "Sales" : "Contact"}] ${topic || "New message"} — ${name}`,
+        html: `<div style="font-family:Arial,sans-serif"><p><b>${esc(name)}</b> &lt;${esc(email)}&gt;${company ? ` · ${esc(company)}` : ""}</p>
+          <p><b>Topic:</b> ${esc(topic || "—")}</p><p style="white-space:pre-wrap">${esc(message)}</p></div>`,
+      });
+      return send(res, 200, { ok: true });
+    } catch (e) {
+      console.error("contact form:", e.message);
+      return send(res, 502, { error: "We couldn't send that — please email support@digiringo.com." });
+    }
+  }
+
   // ── /api/blog — public blog endpoints (no auth).
   if (req.url?.startsWith("/api/blog") && !req.url.startsWith("/api/blog/admin")) {
     if (!db) return send(res, 503, { error: "Database not configured" });
@@ -2777,8 +2857,23 @@ const handleRequest = async (req, res) => {
       return out ? send(res, 200, out) : send(res, 404, { error: "No rates for that country" });
     } catch (e) { return send(res, 502, { error: e.message || "Couldn't reach the carrier" }); }
   }
+  // ── /api/rates/countries — public: retail call + SMS rates for every country
+  // the outbound deck covers (the site's searchable rate list).
+  if (req.url?.split("?")[0] === "/api/rates/countries" && req.method === "GET") {
+    try { return send(res, 200, await allCountryRates()); }
+    catch (e) { return send(res, 502, { error: e.message || "Rates unavailable" }); }
+  }
   if (req.url?.startsWith("/api/rates") && req.method === "GET") {
     return send(res, 200, await getRatesWithMarkup());
+  }
+
+  // ── /api/public/numbers — public, rate-limited: a few available US/CA numbers
+  // for the marketing site's number search (no ordering, no account needed).
+  if (req.url?.startsWith("/api/public/numbers") && req.method === "GET") {
+    if (!telnyxKey()) return send(res, 503, { error: "Telephony not configured" });
+    if (rateLimited(`pubnum:${clientIp(req)}`, 30, 60_000)) return send(res, 429, { error: "Too many searches — try again in a minute." });
+    try { return send(res, 200, await publicNumberSearch(new URL(req.url, "http://x").searchParams)); }
+    catch (e) { return send(res, 502, { error: e.message || "Search failed" }); }
   }
 
   // Anything that isn't an API/webhook route → serve the built front-end.

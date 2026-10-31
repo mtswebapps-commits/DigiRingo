@@ -1,10 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 
 /**
- * Tiny hash-based router. The marketing site ships as a static Vite entry
- * (site.html), so hash routing works regardless of the deploy sub-path — no
- * server rewrites needed. Routes: "/", "/features", "/pricing", "/contact",
- * "/login", "/signup".
+ * Tiny History-API router. The server falls back to site.html for any unknown
+ * path, so clean URLs (/pricing, /local-numbers/texas) work on a hard load and
+ * can be indexed. Old hash links (/#/pricing) are rewritten on first load.
  */
 export type Route = string;
 
@@ -14,25 +13,31 @@ const RouteCtx = createContext<{ route: Route; navigate: (to: Route) => void }>(
 });
 
 function currentPath(): Route {
-  const h = window.location.hash.replace(/^#/, "");
-  return h.startsWith("/") ? h : "/";
+  const p = window.location.pathname.replace(/\/+$/, "");
+  return p || "/";
 }
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const [route, setRoute] = useState<Route>(currentPath());
+  const [route, setRoute] = useState<Route>(() => {
+    const h = window.location.hash.replace(/^#/, "");
+    if (h.startsWith("/")) window.history.replaceState(null, "", h + window.location.search);
+    return currentPath();
+  });
 
   useEffect(() => {
-    const onHash = () => {
-      setRoute(currentPath());
-      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    };
-    window.addEventListener("hashchange", onHash);
-    if (!window.location.hash) window.location.replace("#/");
-    return () => window.removeEventListener("hashchange", onHash);
+    const onPop = () => setRoute(currentPath());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   const navigate = (to: Route) => {
-    window.location.hash = to;
+    const [path, anchor] = to.split("#");
+    if (path && path !== currentPath()) {
+      window.history.pushState(null, "", to);
+      setRoute(currentPath());
+    }
+    if (anchor) requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth" }));
+    else window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
   };
 
   return <RouteCtx.Provider value={{ route, navigate }}>{children}</RouteCtx.Provider>;
@@ -40,7 +45,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
 
 export const useRouter = () => useContext(RouteCtx);
 
-/** Anchor that drives the hash router and supports an active state. */
+/** Anchor that drives the router (plain click) and still opens in a new tab on ctrl/middle-click. */
 export function Link({
   to,
   className,
@@ -52,12 +57,16 @@ export function Link({
   children: ReactNode;
   onClick?: () => void;
 }) {
+  const { navigate } = useRouter();
+  const go = (e: MouseEvent<HTMLAnchorElement>) => {
+    onClick?.();
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!to.startsWith("/")) return;
+    e.preventDefault();
+    navigate(to);
+  };
   return (
-    <a
-      href={`#${to}`}
-      className={className}
-      onClick={() => onClick?.()}
-    >
+    <a href={to} className={className} onClick={go}>
       {children}
     </a>
   );
