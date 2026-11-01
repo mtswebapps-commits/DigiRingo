@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { monitorScreen } from "./services/monitor";
 import { Home, Phone, PhoneCall, MessageSquare, Bell, Settings } from "lucide-react";
 import { useApp, type AvailableNumber } from "./store/AppStore";
 import { colors as C, gradients } from "./core/theme";
@@ -60,6 +61,7 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
   const { state, toasts, buyNumber, searchNumbers, selectNumber, placeCall, showToast } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>("home");
   const [overlay, setOverlay] = useState<Overlay>(null);
+  useEffect(() => { if (!preview) monitorScreen(overlay?.name ?? activeTab); }, [preview, overlay?.name, activeTab]);
   const [showBuy, setShowBuy] = useState(false);
   // A phone number to pre-fill the inbox compose with (e.g. "message" from a call).
   const [composeTo, setComposeTo] = useState<string | null>(null);

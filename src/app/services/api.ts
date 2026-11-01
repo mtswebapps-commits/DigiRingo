@@ -7,6 +7,7 @@
  * with `isNetwork` so the store can gracefully fall back to a mock login in dev.
  */
 import { API_ORIGIN } from "./origin";
+import { monitorEvent } from "./monitor";
 
 const TOKEN_KEY = "dg-token";
 
@@ -36,6 +37,7 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   } catch {
     const e: NetError = new Error("Can't reach the server — check your connection");
     e.isNetwork = true;
+    monitorEvent("network", "Could not reach the server", `${opts.method ?? "GET"} ${path.split("?")[0]}`, "warn");
     throw e;
   }
   const j = await r.json().catch(() => ({} as Record<string, unknown>));

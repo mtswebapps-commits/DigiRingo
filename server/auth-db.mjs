@@ -31,6 +31,9 @@ const pool = mysql.createPool({
   charset: "utf8mb4_unicode_ci",
 });
 
+/** Shared with the monitoring module (server/monitor.mjs). */
+export const dbPool = pool;
+
 // Never fall back to a guessable constant — anyone could forge tokens with it.
 // Without AUTH_SECRET a random per-boot secret is used (sessions end on restart).
 const AUTH_SECRET = process.env.AUTH_SECRET || randomBytes(32).toString("hex");
@@ -1612,8 +1615,13 @@ export async function markSubscriptionPastDue(uid) {
 /* --------------------------------------------------------------- activity feed */
 /** Append an activity item for a user (persisted so it survives a refresh).
  *  Best-effort for callers in hot paths — swallow errors, never block the action. */
+let activityHook = null;
+/** Mirrors account activity into the Control Hub's monitoring feed. */
+export function setActivityHook(fn) { activityHook = fn; }
+
 export async function logActivity(uid, { kind = "system", title, body = "" } = {}) {
   if (!uid || !title) return;
+  try { activityHook?.(uid, { kind, title, body }); } catch { /* monitoring must never block the action */ }
   try {
     await pool.query(
       "INSERT INTO activity_log (user_id, kind, title, body) VALUES (?, ?, ?, ?)",

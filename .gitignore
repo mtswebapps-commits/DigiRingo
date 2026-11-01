@@ -36,3 +36,6 @@ Thumbs.db
 
 # Play Store build artifacts (AAB/APK downloaded from CI)
 /playstore/build/
+
+# Monitoring crash note
+.last-crash.json

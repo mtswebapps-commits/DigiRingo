@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   LayoutDashboard, Users, Phone, CreditCard, ArrowLeftRight, Radio, Settings, Search, Bell, Wallet, Plug, LogOut,
-  LifeBuoy, UsersRound, FileText,
+  LifeBuoy, UsersRound, FileText, Activity, AlertTriangle, HeartPulse, ListChecks,
 } from "lucide-react";
 import { A, gradients, font } from "./ui";
 import { DgrMark } from "../app/components/DgrMark";
@@ -20,10 +20,19 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { AdminSupport } from "./pages/AdminSupport";
 import { AdminTeam } from "./pages/AdminTeam";
 import { BlogPage } from "./pages/BlogPage";
+import { LivePage } from "./pages/LivePage";
+import { IssuesPage } from "./pages/IssuesPage";
+import { ActivityPage } from "./pages/ActivityPage";
+import { HealthPage } from "./pages/HealthPage";
+import { monIssues } from "./monitorApi";
 
-type Section = "overview" | "users" | "numbers" | "telnyx" | "payments" | "integrations" | "billing" | "transactions" | "settings" | "support" | "team" | "blog";
+type Section = "live" | "issues" | "activity" | "health" | "overview" | "users" | "numbers" | "telnyx" | "payments" | "integrations" | "billing" | "transactions" | "settings" | "support" | "team" | "blog";
 
 const ADMIN_NAV: Array<{ id: Section; label: string; Icon: typeof Users }> = [
+  { id: "live", label: "Live", Icon: Activity },
+  { id: "issues", label: "Issues", Icon: AlertTriangle },
+  { id: "activity", label: "Activity", Icon: ListChecks },
+  { id: "health", label: "System health", Icon: HeartPulse },
   { id: "overview", label: "Overview", Icon: LayoutDashboard },
   { id: "blog", label: "Blog", Icon: FileText },
   { id: "support", label: "Support", Icon: LifeBuoy },
@@ -43,7 +52,10 @@ const AGENT_NAV: Array<{ id: Section; label: string; Icon: typeof Users }> = [
 ];
 
 export default function AdminApp() {
-  const [section, setSection] = useState<Section>("overview");
+  const [section, setSection] = useState<Section>("live");
+  const [openIssues, setOpenIssues] = useState(0);
+  const [search, setSearch] = useState("");
+  const [userQuery, setUserQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [checking, setChecking] = useState(true);
@@ -58,6 +70,15 @@ export default function AdminApp() {
     setChecking(false);
   }, []);
   useEffect(() => { resolve(); }, [resolve]);
+
+  // The bell shows real open issues (owner only; agents have no access to them).
+  useEffect(() => {
+    if (!session || session.role === "agent") return;
+    const load = () => { monIssues({ status: "open" }).then((r) => setOpenIssues(r.issues.length)).catch(() => {}); };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+  }, [session, section]);
 
   const logout = useCallback(() => { clearAdminToken(); setSession(null); }, []);
 
@@ -78,11 +99,15 @@ export default function AdminApp() {
     // Agents are limited to the support console.
     if (isAgent) return <AdminSupport toast={showToast} />;
     switch (section) {
+      case "live": return <LivePage toast={showToast} onOpenIssues={() => setSection("issues")} />;
+      case "issues": return <IssuesPage toast={showToast} />;
+      case "activity": return <ActivityPage toast={showToast} />;
+      case "health": return <HealthPage toast={showToast} />;
       case "overview": return <Overview />;
       case "blog": return <BlogPage toast={showToast} />;
-      case "support": return <AdminSupport toast={showToast} />;
+      case "support": return <AdminSupport toast={showToast} canViewLogs />;
       case "team": return <AdminTeam toast={showToast} />;
-      case "users": return <UsersPage toast={showToast} />;
+      case "users": return <UsersPage key={userQuery} toast={showToast} initialQuery={userQuery} />;
       case "numbers": return <NumbersPage toast={showToast} />;
       case "billing": return <BillingPage toast={showToast} />;
       case "transactions": return <TransactionsPage toast={showToast} />;
@@ -138,12 +163,13 @@ export default function AdminApp() {
         <header style={{ height: 64, flexShrink: 0, borderBottom: `1px solid ${A.line}`, background: A.panel, display: "flex", alignItems: "center", gap: 16, padding: "0 24px", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ flex: 1, maxWidth: 420, position: "relative" }}>
             <Search size={15} color={A.muted} style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)" }} />
-            <input placeholder="Search users, numbers, transactions…"
+            <input placeholder="Search users by name or email, then press Enter" value={search} onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { setUserQuery(search.trim()); setSection("users"); } }}
               style={{ width: "100%", padding: "10px 14px 10px 38px", background: A.panelAlt, border: `1px solid ${A.line}`, borderRadius: 11, color: A.text, fontSize: 13.5, outline: "none" }} />
           </div>
-          <button onClick={() => showToast("No new alerts")} style={{ width: 38, height: 38, borderRadius: 11, background: A.panelAlt, border: `1px solid ${A.line}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+          <button onClick={() => isAgent ? showToast("No new alerts") : setSection("issues")} title={openIssues ? `${openIssues} open issues` : "No open issues"} style={{ width: 38, height: 38, borderRadius: 11, background: A.panelAlt, border: `1px solid ${A.line}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
             <Bell size={17} color={A.muted} />
-            <span style={{ position: "absolute", top: 9, right: 10, width: 7, height: 7, borderRadius: "50%", background: A.red }} />
+            {openIssues > 0 && <span style={{ position: "absolute", top: 3, right: 3, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, background: A.red, color: "#fff", fontSize: 10, fontWeight: 800, lineHeight: "16px", textAlign: "center" }}>{openIssues > 99 ? "99+" : openIssues}</span>}
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 36, height: 36, borderRadius: "50%", background: gradients.brand, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 14 }}>{(session.name || "A").charAt(0).toUpperCase()}</div>

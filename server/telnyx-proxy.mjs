@@ -23,6 +23,8 @@
  * `threads` Map for a database (Postgres/Redis). The route shapes stay identical.
  */
 import { createServer } from "node:http";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { createMonitor } from "./monitor.mjs";
 import { readFile, stat } from "node:fs/promises";
 import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -470,6 +472,7 @@ const corsHeaders = (res) => {
 };
 const send = (res, status, body) => {
   if (res.headersSent) { try { res.end(); } catch { /* ignore */ } return; }
+  if (status >= 400 && body && typeof body === "object") res.monError = body.error || body.errors?.[0]?.detail || ""; // for the monitoring log
   res.writeHead(status, { "Content-Type": "application/json", ...corsHeaders(res) });
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 };
@@ -1489,6 +1492,14 @@ function clientIp(req) {
 }
 
 /* --------------------------------------------------------------- webhook in */
+/** A carrier-side failure, filed against whoever owns the number. */
+function trackTelephonyFailure(ownedNumber, name, detail) {
+  if (!monitor) return;
+  const file = (userId) => monitor.track({ userId, source: "telephony", kind: "call", level: "error", name, detail, issue: true });
+  if (db && ownedNumber) db.findNumberOwner(ownedNumber).then((o) => file(o?.userId ?? null)).catch(() => file(null));
+  else file(null);
+}
+
 function handleWebhook(payload) {
   const ev = payload?.data ?? payload;
   const type = ev?.event_type ?? ev?.record_type;
@@ -1505,15 +1516,101 @@ function handleWebhook(payload) {
   } else if (type === "message.sent" || type === "message.finalized") {
     const status = p.to?.[0]?.status ?? "sent";
     updateStatus(p.id, status);
+    if (/fail|undeliver|reject/i.test(status)) trackTelephonyFailure(p.from?.phone_number, `SMS failed: ${p.errors?.[0]?.title || status}${p.errors?.[0]?.code ? ` (${p.errors[0].code})` : ""}`, p.errors?.[0]?.detail);
   } else if (type && String(type).startsWith("call.")) {
+    if (type === "call.hangup" && (Number(p.sip_hangup_cause) >= 500 || [403, 404].includes(Number(p.sip_hangup_cause)))) {
+      trackTelephonyFailure(p.direction === "incoming" ? p.to : p.from, `Call failed: SIP ${p.sip_hangup_cause} (${p.hangup_cause || "unknown"})`);
+    }
     // Trace call routing/hangup causes without logging the actual phone numbers.
     console.log(`☎ ${type} dir=${p.direction || ""} state=${p.state || ""} cause=${p.hangup_cause || ""} sip=${p.sip_hangup_cause || ""}`);
   }
 }
 
+/* ------------------------------------------------------------- monitoring */
+// Control Hub Live / Issues / Activity / Health. See server/monitor.mjs.
+let monitor = null;
+const monitorChecks = new Map(); // name -> { at, value }: don't hit Telnyx/SMTP on every panel refresh
+const cachedCheck = async (name, ttlMs, fn) => {
+  const c = monitorChecks.get(name);
+  if (c && Date.now() - c.at < ttlMs) return c.value;
+  const value = await fn();
+  monitorChecks.set(name, { at: Date.now(), value });
+  return value;
+};
+const startMonitor = () => {
+  if (!db?.dbPool) return;
+  const rawConsole = { error: console.error.bind(console), warn: console.warn.bind(console) };
+  monitor = createMonitor({
+    pool: db.dbPool, rawConsole,
+    telnyxCheck: () => cachedCheck("telnyx", 60_000, async () => {
+      if (!telnyxKey()) return { ok: false, detail: "No API key" };
+      const t0 = Date.now();
+      const r = await telnyxFetch("/balance", { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return { ok: false, ms: Date.now() - t0, detail: `HTTP ${r.status}` };
+      const j = await r.json().catch(() => ({}));
+      return { ok: true, ms: Date.now() - t0, balance: Number(j.data?.available_credit ?? j.data?.balance ?? 0), currency: j.data?.currency || "USD" };
+    }),
+    smtpCheck: () => cachedCheck("smtp", 5 * 60_000, async () => {
+      if (!mailer) return { ok: false, detail: "SMTP not configured" };
+      await mailer.verify();
+      return { ok: true };
+    }),
+    sendMail: mailer ? (m) => mailer.sendMail({ from: process.env.SMTP_FROM || `DIGIRINGO <${process.env.SMTP_USER}>`, ...m }) : null,
+    getAlertEmail: () => settings.getJSON("monitor")?.alertEmail || process.env.ALERT_EMAIL || process.env.CONTACT_TO || "support@digiringo.com",
+    setAlertEmail: (alertEmail) => settings.setJSON("monitor", { alertEmail }),
+  });
+  db.setActivityHook?.((uid, { title, body }) => {
+    const bad = /fail|suspend|declin/i.test(title);
+    monitor.track({ userId: uid, source: "account", kind: "account", level: bad ? "warn" : "info", name: title, detail: body, issue: bad });
+  });
+  // Every console.error in the code base becomes a tracked server problem.
+  console.error = (...args) => {
+    rawConsole.error(...args);
+    try {
+      const text = args.map((a) => (a instanceof Error ? a.stack || a.message : typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+      if (/^\u{1F4F2}|NotRegistered/u.test(text)) return; // temporary push traces and dead push tokens
+      const nl = text.indexOf("\n");
+      monitor.track({ source: "server", kind: "error", level: "error", name: (nl < 0 ? text : text.slice(0, nl)).slice(0, 200), detail: text, issue: true, alert: true });
+    } catch { /* never let logging throw */ }
+  };
+  monitor.start();
+  // A crash can't wait for a DB write: leave a note and report it after the restart.
+  const crashFile = join(ROOT, ".last-crash.json");
+  process.on("uncaughtExceptionMonitor", (e, origin) => {
+    try { writeFileSync(crashFile, JSON.stringify({ at: Date.now(), origin, message: e?.message, stack: e?.stack })); } catch { /* read-only disk */ }
+  });
+  try {
+    const c = JSON.parse(readFileSync(crashFile, "utf8"));
+    unlinkSync(crashFile);
+    monitor.track({ at: c.at, source: "server", kind: "error", level: "error", name: `Server crashed: ${String(c.message).slice(0, 160)}`, detail: c.stack, issue: true, alert: true });
+  } catch { /* no crash since the last start */ }
+};
+
 /* ------------------------------------------------------------------- routing */
 const handleRequest = async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, "");
+
+  // Client heartbeat: presence, current screen and batched client events. Public
+  // (logged-out visitors count too), so it is size-capped and rate-limited.
+  if (req.url?.startsWith("/api/monitor/beat") && req.method === "POST") {
+    if (!monitor) return send(res, 200, { ok: false });
+    const ip = clientIp(req);
+    if (rateLimited(`beat:${ip}`, 240, 60_000)) return send(res, 429, { error: "Slow down" });
+    if (Number(req.headers["content-length"] || 0) > 128 * 1024) return send(res, 413, { error: "Too large" });
+    let d; try { d = JSON.parse((await readBody(req)) || "{}"); } catch { return send(res, 400, { error: "Bad JSON" }); }
+    const uid = db ? db.verifyToken(bearer(req)) : null;
+    return send(res, 200, await monitor.beat({ body: d, uid: uid ? Number(uid) : null, ip, ua: String(req.headers["user-agent"] || "") }));
+  }
+
+  if (req.url?.startsWith("/api/admin/monitor/")) {
+    if (!verifyAdminToken(bearer(req))) return send(res, 401, { error: "Not authenticated" });
+    if (!monitor) return send(res, 503, { error: "Monitoring needs the database" });
+    const u = new URL(req.url, "http://x");
+    let d = {};
+    if (req.method === "POST") { try { d = JSON.parse((await readBody(req)) || "{}"); } catch { return send(res, 400, { error: "Bad JSON" }); } }
+    try { return send(res, 200, await monitor.adminApi(u.pathname.slice("/api/admin/monitor/".length), u.searchParams, req.method, d)); }
+    catch (e) { return send(res, e.status || 500, { error: e.message }); }
+  }
 
   // 1) Telnyx webhooks (signature-verified when TELNYX_PUBLIC_KEY is set)
   if (req.url?.startsWith("/webhooks/telnyx")) {
@@ -1997,6 +2094,7 @@ const handleRequest = async (req, res) => {
       if (u.pathname === "/api/admin/user/status" && req.method === "POST") {
         const body = await readBody(req); let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
         if (!d.userId) return send(res, 400, { error: "userId required" });
+        monitor?.track({ userId: Number(d.userId), source: "admin", kind: "admin", name: `Support set account status: ${d.status}` });
         try { return send(res, 200, await db.adminSetUserStatus(d.userId, d.status)); }
         catch (e) { return send(res, e.status || 500, { error: e.message }); }
       }
@@ -2004,6 +2102,7 @@ const handleRequest = async (req, res) => {
       if (u.pathname === "/api/admin/user/subscription" && req.method === "POST") {
         const body = await readBody(req); let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
         if (!d.userId || !d.action) return send(res, 400, { error: "userId and action required" });
+        monitor?.track({ userId: Number(d.userId), source: "admin", kind: "admin", name: `Support changed the plan: ${d.action}` });
         try { return send(res, 200, { subscription: await db.setSubscriptionStatus(d.userId, d.action, "admin") }); }
         catch (e) { return send(res, e.status || 500, { error: e.message }); }
       }
@@ -2012,6 +2111,7 @@ const handleRequest = async (req, res) => {
         const body = await readBody(req); let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
         if (!d.userId || !d.e164) return send(res, 400, { error: "userId and e164 required" });
         try {
+          monitor?.track({ userId: Number(d.userId), source: "admin", kind: "admin", name: "Support released a number", detail: d.e164 });
           const rel = await db.releaseNumber(d.userId, d.e164, "admin");
           const tel = await releaseTelnyxNumber(d.e164);
           if (!tel.ok) console.error(`Telnyx release ${d.e164}: ${tel.reason}`);
@@ -2022,6 +2122,7 @@ const handleRequest = async (req, res) => {
       if (u.pathname === "/api/admin/wallet" && req.method === "POST") {
         const body = await readBody(req); let d; try { d = JSON.parse(body || "{}"); } catch { d = {}; }
         if (!d.userId || !d.amount) return send(res, 400, { error: "userId and amount required" });
+        monitor?.track({ userId: Number(d.userId), source: "admin", kind: "admin", name: `Support adjusted the wallet by ${Number(d.amount)}`, detail: d.label });
         try { return send(res, 200, { ok: true, wallet: await db.adminAdjustWallet(d.userId, d.amount, d.label) }); }
         catch (e) { return send(res, e.status || 500, { error: e.message }); }
       }
@@ -3068,7 +3169,16 @@ const handleRequest = async (req, res) => {
 // Any error a route didn't catch (malformed URL, bad JSON, DB blip…) answers 500
 // instead of becoming an unhandled rejection — which would crash the process.
 createServer((req, res) => {
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    if (!monitor) return;
+    try {
+      const uid = db ? db.verifyToken(bearer(req)) : null;
+      monitor.onRequest({ method: req.method, url: req.url, status: res.statusCode, ms: Date.now() - startedAt, uid: uid ? Number(uid) : null, ip: clientIp(req), errorMessage: res.monError, logged: res.monLogged });
+    } catch { /* monitoring must never affect a request */ }
+  });
   handleRequest(req, res).catch((e) => {
+    res.monLogged = true; // the console.error below already files this as an issue
     console.error(`request failed ${req.method} ${String(req.url || "").split("?")[0].slice(0, 120)}:`, e?.message || e);
     try { send(res, 500, { error: "Something went wrong — please try again." }); } catch { /* socket gone */ }
   });
@@ -3081,6 +3191,8 @@ createServer((req, res) => {
   console.log(`  admin    : http://localhost:${PORT}/admin    (Control Hub)`);
   console.log(`  app API  : http://localhost:${PORT}${PREFIX}  → ${TELNYX}`);
   console.log(`  webhooks : http://localhost:${PORT}/webhooks/telnyx`);
+
+  startMonitor();
 
   // Load Control-Hub-managed settings (encrypted key overrides + config) into
   // the in-memory cache, THEN point the messaging profile's inbound webhook at us
@@ -3106,19 +3218,25 @@ createServer((req, res) => {
         .then((n) => { if (n) console.log(`↻ auto-renewed ${n} number rental(s)`); }),
       db.renewDueTenDlc?.()
         .then((n) => { if (n) console.log(`↻ charged ${n} 10DLC campaign fee(s)`); }),
-    ]).then((rs) => rs.forEach((r) => { if (r.status === "rejected") console.error("renewal sweep failed:", r.reason?.message); }));
+    ]).then((rs) => {
+      rs.forEach((r) => { if (r.status === "rejected") console.error("renewal sweep failed:", r.reason?.message); });
+      monitor?.mark("renewals", rs.every((r) => r.status === "fulfilled"));
+    });
     runRenewals();
     setInterval(runRenewals, 60 * 60 * 1000).unref?.();
   }
 
   // Carrier-side changes to numbers (cancelled orders, approvals) every 15 min.
   if (db?.listLiveNumbers && telnyxKey()) {
-    const runReconcile = () => reconcileNumbers().catch((e) => console.error("number reconcile failed:", e.message));
+    const runReconcile = () => reconcileNumbers()
+      .then(() => monitor?.mark("reconcile"))
+      .catch((e) => { monitor?.mark("reconcile", false, e.message); console.error("number reconcile failed:", e.message); });
     setTimeout(runReconcile, 30_000).unref?.();
     setInterval(runReconcile, 15 * 60 * 1000).unref?.();
   }
 
   // Outbound voice rate deck: per-destination budgets for calls abroad (daily refresh).
-  setTimeout(() => ensureRateDeck(), 5_000).unref?.();
-  setInterval(() => ensureRateDeck(), 6 * 3600_000).unref?.();
+  const runRateDeck = async () => { try { await ensureRateDeck(); monitor?.mark("rate-deck"); } catch (e) { monitor?.mark("rate-deck", false, e.message); } };
+  setTimeout(runRateDeck, 5_000).unref?.();
+  setInterval(runRateDeck, 6 * 3600_000).unref?.();
 });

@@ -49,6 +49,8 @@ function sitemapXml(): Plugin {
 }
 
 export default defineConfig({
+  // Which web build a user is on (shown in the Control Hub).
+  define: { __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace("T", " ")) },
   plugins: [
     figmaAssetResolver(),
     sitemapXml(),

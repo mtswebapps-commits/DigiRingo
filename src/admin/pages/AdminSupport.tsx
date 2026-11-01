@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Send, MessageSquare } from "lucide-react";
 import { A, gradients, font } from "../ui";
+import { UserDiagnostics } from "./UserDiagnostics";
 import { adminGetThreads, adminGetThread, adminReply, type AdminThread, type AdminSupportMessage } from "../api";
 
 /** Control Hub support inbox — customer threads on the left, live chat on the right. */
-export function AdminSupport({ toast }: { toast: (m: string) => void }) {
+export function AdminSupport({ toast, canViewLogs }: { toast: (m: string) => void; canViewLogs?: boolean }) {
+  const [logsFor, setLogsFor] = useState<number | null>(null);
   const [threads, setThreads] = useState<AdminThread[]>([]);
   const [active, setActive] = useState<number | null>(null);
   const [messages, setMessages] = useState<AdminSupportMessage[]>([]);
@@ -86,6 +88,8 @@ export function AdminSupport({ toast }: { toast: (m: string) => void }) {
               <div style={{ padding: "13px 18px", borderBottom: `1px solid ${A.line}` }}>
                 <p style={{ color: A.text, fontSize: 14.5, fontWeight: 700 }}>{activeThread?.name || "Customer"}</p>
                 <p style={{ color: A.muted, fontSize: 12, marginTop: 2 }}>{activeThread?.email}</p>
+                {canViewLogs && <button onClick={() => setLogsFor(active)} style={{ marginTop: 6, padding: 0, background: "none", border: "none", color: A.blue, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Check this user's logs</button>}
+                {logsFor != null && <UserDiagnostics userId={logsFor} toast={toast} onClose={() => setLogsFor(null)} />}
               </div>
               <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
                 {messages.map((m) => {

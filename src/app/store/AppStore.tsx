@@ -16,6 +16,7 @@ import type { BillingCycle, NumberKind, PayMethod } from "../core/plans";
 import { fetchRates } from "../core/rates";
 import { dialToE164 } from "../core/dial";
 import { trackSignUp, trackBuyNumber, trackWalletPurchases, setAdsUser } from "../services/analytics";
+import { monitorEvent } from "../services/monitor";
 import {
   apiLogin, apiRegister, apiMe, apiWallet, apiBuyNumber, apiReleaseNumber, apiSubscribe, apiGetSubscription, apiSetAutoRenew, apiCancelSubscription,
   apiResendVerification, apiGetCalls, apiGetNumbers, apiLogCall,
@@ -457,6 +458,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const inboxSeeded = useRef(false);
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
+    if (type === "error") monitorEvent("ui_error", message, undefined, "warn"); // what the user actually saw go wrong
     const id = Date.now() + Math.floor(Math.random() * 1000);
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3200);

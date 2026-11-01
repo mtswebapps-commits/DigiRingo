@@ -1,15 +1,16 @@
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { Search, Wallet, Eye, X, RefreshCw } from "lucide-react";
 import { A, Card, Badge, Button, Table, Td, PageHeader, Modal, money, font } from "../ui";
+import { UserDiagnostics } from "./UserDiagnostics";
 import {
   adminListUsers, adminGetUser, adminSetStatus, adminAdjustWallet, adminSetSubscription, adminReleaseNumber,
   type AdminUserRow, type AdminUserDetail,
 } from "../api";
 
-export function UsersPage({ toast }: { toast: (m: string) => void }) {
+export function UsersPage({ toast, initialQuery = "" }: { toast: (m: string) => void; initialQuery?: string }) {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery);
   const [wallet, setWallet] = useState<AdminUserRow | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
 
@@ -18,7 +19,6 @@ export function UsersPage({ toast }: { toast: (m: string) => void }) {
     adminListUsers(query).then((r) => setUsers(r.users)).catch((e) => toast(e instanceof Error ? e.message : "Could not load users")).finally(() => setLoading(false));
   }, [toast]);
 
-  useEffect(() => { load(""); }, [load]);
   // Debounced search.
   useEffect(() => { const t = setTimeout(() => load(q), 300); return () => clearTimeout(t); }, [q, load]);
 
@@ -134,6 +134,7 @@ function WalletModal({ user, toast, onClose, onDone }: { user: AdminUserRow; toa
 
 /* Slide-over with a customer's full detail. */
 function UserDrawer({ id, toast, onClose }: { id: number; toast: (m: string) => void; onClose: () => void }) {
+  const [diag, setDiag] = useState(false);
   const [d, setD] = useState<AdminUserDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => { adminGetUser(id).then((r) => setD(r.user)).catch((e) => toast(e instanceof Error ? e.message : "Could not load")); }, [id, toast]);
@@ -205,6 +206,12 @@ function UserDrawer({ id, toast, onClose }: { id: number; toast: (m: string) => 
                     </div>
                   </Card>
                 ) : <p style={{ color: A.muted, fontSize: 13 }}>No active plan (free).</p>}
+              </Section>
+
+              <Section title="Problems and logs">
+                <p style={{ color: A.muted, fontSize: 12.5, marginBottom: 10 }}>See what this user did, every error they hit, and download or request their logs.</p>
+                <Button size="sm" onClick={() => setDiag(true)}>Open diagnostics</Button>
+                {diag && <UserDiagnostics userId={id} toast={toast} onClose={() => setDiag(false)} />}
               </Section>
 
               <Section title={`Numbers (${d.numbers.length})`}>

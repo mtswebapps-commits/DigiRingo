@@ -1,4 +1,5 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { monitorScreen } from "./services/monitor";
 import {
   LayoutGrid, Phone, MessageSquare, PhoneCall, Bell, Sparkles, Wallet2, ShieldCheck,
   Settings, Smartphone, Plus, LogOut, X, ChevronRight,
@@ -66,6 +67,7 @@ export function DashboardShell() {
   const { state, toasts, buyNumber, searchNumbers, selectNumber, placeCall, showToast, logout } = useApp();
   const [section, setSection] = useState<Section>("home");
   const [sub, setSub] = useState<Sub>(null);
+  useEffect(() => { monitorScreen(typeof sub === "string" ? sub : (sub as { name?: string } | null)?.name ?? section); }, [sub, section]);
   const [showBuy, setShowBuy] = useState(false);
   const [showDialer, setShowDialer] = useState(false);
   const [showMobile, setShowMobile] = useState(false);

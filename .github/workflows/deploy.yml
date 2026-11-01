@@ -17,6 +17,8 @@ on:
       - "server/**"
       - "public/**"
       - "index.html"
+      - "site.html"
+      - "admin.html"
       - "package.json"
       - "pnpm-lock.yaml"
       - "vite.config.*"

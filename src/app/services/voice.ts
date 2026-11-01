@@ -13,6 +13,7 @@
  * In "mock" mode there's no SDK/network — call state is simulated so the in-call
  * UI is fully demoable offline (incl. a dev hook to preview an incoming call).
  */
+import { monitorEvent } from "./monitor";
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { getToken } from "./api";
 import { API_BASE, TELNYX_MODE } from "./telnyx/config";
@@ -64,10 +65,23 @@ let snap: CallSnapshot | null = null;
 const listeners = new Set<Listener>();
 
 function notify() { listeners.forEach((fn) => fn(snap)); }
-function pushSnap(s: CallSnapshot) { snap = s; notify(); }
+// Call progress for the Control Hub (never the number being called).
+let reportedPhase = "";
+function reportPhase() {
+  const phase = snap?.phase ?? "";
+  if (phase === reportedPhase) return;
+  reportedPhase = phase;
+  if (phase === "failed") monitorEvent("call", `Call failed: ${snap?.error || "unknown reason"}`, `${snap?.direction ?? ""} call`, "error");
+  else if (phase === "incoming") monitorEvent("call", "Incoming call ringing");
+  else if (phase === "active") monitorEvent("call", `${snap?.direction === "inbound" ? "Incoming" : "Outgoing"} call connected`);
+  else if (phase === "ended") monitorEvent("call", "Call ended");
+}
+
+function pushSnap(s: CallSnapshot) { snap = s; reportPhase(); notify(); }
 function emit(patch: Partial<CallSnapshot>) {
   if (!snap) return;
   snap = { ...snap, ...patch };
+  reportPhase();
   notify();
 }
 
@@ -247,10 +261,11 @@ function ensureClient(): Promise<void> {
         client.remoteElement = REMOTE_AUDIO_ID;
         client.on("telnyx.ready", () => { registered = true; clearTimeout(timeout); console.info("[voice] registered (ready for inbound + outbound)"); resolve(); });
         client.on("telnyx.notification", onNotification);
-        client.on("telnyx.socket.close", () => { console.warn("[voice] socket closed"); registered = false; readyPromise = null; });
+        client.on("telnyx.socket.close", () => { console.warn("[voice] socket closed"); monitorEvent("call", "Voice connection dropped", undefined, "warn"); registered = false; readyPromise = null; });
         client.on("telnyx.error", (e: unknown) => {
           const msg = (e as { error?: { message?: string } })?.error?.message || "Voice connection error";
           console.warn("[voice] error:", msg);
+          monitorEvent("call", `Voice error: ${msg}`, undefined, "error");
           clearTimeout(timeout);
           if (snap && snap.phase !== "ended") { endCall(); emit({ phase: "failed", error: msg }); }
           reject(new Error(msg));
@@ -373,7 +388,7 @@ function endCall() {
 export function register() {
   if (!live) return;
   console.info("[voice] register() — connecting for inbound…");
-  ensureClient().catch((e) => { console.warn("[voice] register failed:", e?.message); });
+  ensureClient().catch((e) => { console.warn("[voice] register failed:", e?.message); monitorEvent("call", `Could not connect to voice: ${e?.message || "unknown"}`, undefined, "error"); });
 }
 
 /** Tear down the client entirely (e.g. on logout). */
