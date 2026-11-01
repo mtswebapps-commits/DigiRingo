@@ -54,6 +54,17 @@ async function log(name: string, params: Params): Promise<void> {
   } catch { /* analytics must never break the app */ }
 }
 
+/**
+ * Enhanced conversions (on in Google Ads): give gtag the signed-in user's email so
+ * conversions match better. gtag hashes it (SHA-256) before it leaves the browser.
+ * Web only; must run before the sign_up / purchase event it should attach to.
+ */
+export function setAdsUser(email: string | undefined | null): void {
+  const e = (email || "").trim().toLowerCase();
+  if (native() || !e.includes("@")) return;
+  try { gtag()?.("set", "user_data", { email: e }); } catch { /* ignore */ }
+}
+
 /** A NEW account was created (not a returning login). */
 export function trackSignUp(method: "email" | "google" | "apple"): void {
   void log("sign_up", { method });

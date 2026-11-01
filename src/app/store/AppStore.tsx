@@ -15,7 +15,7 @@ import { getBundle, NUMBER_RENTAL } from "../core/plans";
 import type { BillingCycle, NumberKind, PayMethod } from "../core/plans";
 import { fetchRates } from "../core/rates";
 import { dialToE164 } from "../core/dial";
-import { trackSignUp, trackBuyNumber, trackWalletPurchases } from "../services/analytics";
+import { trackSignUp, trackBuyNumber, trackWalletPurchases, setAdsUser } from "../services/analytics";
 import {
   apiLogin, apiRegister, apiMe, apiWallet, apiBuyNumber, apiReleaseNumber, apiSubscribe, apiGetSubscription, apiSetAutoRenew, apiCancelSubscription,
   apiResendVerification, apiGetCalls, apiGetNumbers, apiLogCall,
@@ -517,6 +517,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const res = name ? await apiRegister(email, password, name) : await apiLogin(email, password);
       saveToken(res.token);
+      setAdsUser(email);
       if (name) trackSignUp("email");
       // Now that we have an account, ship any FCM token that registered before
       // login so background call/SMS alerts work in this very session.
@@ -546,7 +547,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       saveToken(token);
       flushPushToken();
-      dispatch({ t: "LOGIN", user: toAppUser(await apiMe()) });
+      const me = toAppUser(await apiMe());
+      setAdsUser(me.email);
+      dispatch({ t: "LOGIN", user: me });
       try {
         const w = await apiWallet();
         dispatch({ t: "SET_WALLET", balance: w.balance, txns: toAppTxns(w) });
@@ -689,6 +692,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     initOAuthCapture();
     return off;
   }, [loginWithToken, showToast]);
+
+  // Restored sessions too: enhanced conversions need the email before any purchase.
+  useEffect(() => { setAdsUser(state.user?.email); }, [state.user?.email]);
 
   const selectNumber = useCallback((id: string) => dispatch({ t: "SELECT_NUMBER", id }), []);
 
