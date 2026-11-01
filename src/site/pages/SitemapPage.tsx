@@ -2,17 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "../router";
 import { loadAllDocs } from "../content/registry";
 import { STATIC_POSTS } from "../content/posts";
+import { CORE } from "../content/sitemapPaths";
 import { StatusBadge } from "../components/blocks";
 import { usePageMeta } from "../lib/seo";
 import type { PageDoc } from "../content/types";
-
-const CORE = [
-  { path: "/", title: "Home" }, { path: "/pricing", title: "Pricing" }, { path: "/rates", title: "International rates" },
-  { path: "/local-numbers", title: "Local numbers" }, { path: "/toll-free-numbers", title: "Toll-free numbers" },
-  { path: "/tools", title: "Free tools" }, { path: "/blog", title: "Blog" }, { path: "/about", title: "About" },
-  { path: "/careers", title: "Careers" }, { path: "/contact", title: "Contact" }, { path: "/sales", title: "Talk to us" },
-  { path: "/status", title: "System status" }, { path: "/terms", title: "Terms" }, { path: "/privacy", title: "Privacy" },
-];
 
 const SECTION_OF = (p: string) => {
   const top = p.split("/")[1] || "";

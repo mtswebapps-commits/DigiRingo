@@ -1,9 +1,11 @@
 /**
- * Firebase Analytics (native only) — conversion events for Google Ads App campaigns.
+ * Conversion events for Google Ads.
  *
- * Uses the native @capacitor-firebase/analytics plugin so events come from the
- * Android Firebase SDK (what Google Ads links to). On the web / mock build every
- * call is a no-op, and nothing here ever throws into the app.
+ * Native: the @capacitor-firebase/analytics plugin, so events come from the
+ * Android Firebase SDK (what Google Ads App campaigns link to).
+ * Web: gtag.js (GA4 + Google Ads), loaded by index.html / site.html on
+ * digiringo.com only. Elsewhere `window.gtag` is missing and every call is a
+ * no-op. Nothing here ever throws into the app.
  *
  * Event names are Firebase's standard ones (sign_up, purchase) so Google Ads
  * recognises them without custom mapping.
@@ -14,8 +16,31 @@ const native = () => { try { return Capacitor.isNativePlatform(); } catch { retu
 
 type Params = Record<string, string | number>;
 
+/**
+ * Google Ads conversion labels (Ads → Goals → Conversions → tag setup, the part
+ * after "AW-18520064773/"). Empty = only GA4 gets the event; import the GA4 key
+ * event into Google Ads instead.
+ */
+const ADS_ID = "AW-18520064773";
+const ADS_LABELS: Record<string, string> = { sign_up: "", purchase: "" };
+
+type Gtag = (...args: unknown[]) => void;
+const gtag = (): Gtag | null => (typeof window !== "undefined" && typeof (window as { gtag?: Gtag }).gtag === "function" ? (window as unknown as { gtag: Gtag }).gtag : null);
+
+/** Is there anywhere to send events on this build? */
+const enabled = () => native() || !!gtag();
+
 async function log(name: string, params: Params): Promise<void> {
-  if (!native()) return;
+  if (!native()) {
+    const g = gtag();
+    if (!g) return;
+    try {
+      g("event", name, params);
+      const label = ADS_LABELS[name];
+      if (label) g("event", "conversion", { send_to: `${ADS_ID}/${label}`, value: params.value, currency: params.currency, transaction_id: params.transaction_id });
+    } catch { /* analytics must never break the app */ }
+    return;
+  }
   try {
     const { FirebaseAnalytics } = await import("@capacitor-firebase/analytics");
     await FirebaseAnalytics.logEvent({ name, params });
@@ -56,7 +81,7 @@ const seen = (id: string) => read<string[]>(LOGGED_KEY, []).includes(id);
 
 /** Freemius overlay reported a completed purchase. */
 export function trackPurchase(transactionId: string, value: number): void {
-  if (!native() || !(value > 0)) return;
+  if (!enabled() || !(value > 0)) return;
   const id = transactionId || `fs_overlay_${Date.now()}`;
   if (seen(id)) return;
   remember(id);
@@ -69,7 +94,7 @@ export function trackPurchase(transactionId: string, value: number): void {
  * analytics started on this install that wasn't already logged from the overlay.
  */
 export function trackWalletPurchases(txns: { ref?: string; amount: number; at?: number }[]): void {
-  if (!native()) return;
+  if (!enabled()) return;
   let since = read<number>(SINCE_KEY, 0);
   if (!since) { since = Date.now(); write(SINCE_KEY, since); return; } // never back-fill old top-ups
   const pending = read<{ amount: number; at: number }[]>(PENDING_KEY, []).filter((p) => Date.now() - p.at < DAY);

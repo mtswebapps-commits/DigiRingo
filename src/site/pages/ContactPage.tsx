@@ -35,6 +35,8 @@ export function ContactPage({ sales = false }: { sales?: boolean }) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "Something went wrong");
       setState("sent");
+      // GA4 / Google Ads lead (gtag is only loaded on digiringo.com).
+      (window as { gtag?: (...a: unknown[]) => void }).gtag?.("event", "generate_lead", { form: sales ? "sales" : "contact" });
     } catch (ex) {
       setErr((ex as Error).message); setState("idle");
     }

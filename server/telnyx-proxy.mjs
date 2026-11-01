@@ -526,7 +526,7 @@ const MIME = {
   ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon",
   ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf",
-  ".map": "application/json", ".csv": "text/csv", ".txt": "text/plain; charset=utf-8",
+  ".map": "application/json", ".csv": "text/csv", ".xml": "application/xml; charset=utf-8", ".txt": "text/plain; charset=utf-8",
   ".webmanifest": "application/manifest+json", ".wasm": "application/wasm",
 };
 

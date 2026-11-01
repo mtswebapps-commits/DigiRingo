@@ -25,6 +25,20 @@
           document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
         } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }
       </script>
+      <!-- Google tag (GA4 G-851Y7T5D21 + Google Ads AW-18520064773). Production host
+           only, so local dev and the native app's WebView never report. -->
+      <script>
+        if (location.hostname === "digiringo.com" || location.hostname === "www.digiringo.com") {
+          window.dataLayer = window.dataLayer || [];
+          window.gtag = function () { dataLayer.push(arguments); };
+          gtag("js", new Date());
+          gtag("config", "G-851Y7T5D21");
+          gtag("config", "AW-18520064773");
+          var s = document.createElement("script");
+          s.async = true; s.src = "https://www.googletagmanager.com/gtag/js?id=G-851Y7T5D21";
+          document.head.appendChild(s);
+        }
+      </script>
       <style>
         html, body { height: 100%; margin: 0; background: #e7ebf3; }
         html[data-theme="dark"], html[data-theme="dark"] body { background: #04060b; }
