@@ -22,7 +22,9 @@ type Params = Record<string, string | number>;
  * event into Google Ads instead.
  */
 const ADS_ID = "AW-18520064773";
-const ADS_LABELS: Record<string, string> = { sign_up: "", purchase: "" };
+const ADS_LABELS: Record<string, string> = { sign_up: "-OOCCLzi5q8dEIWGh_9E", purchase: "liBfCLni5q8dEIWGh_9E" };
+/** Fixed value for conversions that have no amount (matches the Ads setup: sign-up = $1). */
+const ADS_DEFAULT_VALUE: Record<string, number> = { sign_up: 1 };
 
 type Gtag = (...args: unknown[]) => void;
 const gtag = (): Gtag | null => (typeof window !== "undefined" && typeof (window as { gtag?: Gtag }).gtag === "function" ? (window as unknown as { gtag: Gtag }).gtag : null);
@@ -37,7 +39,12 @@ async function log(name: string, params: Params): Promise<void> {
     try {
       g("event", name, params);
       const label = ADS_LABELS[name];
-      if (label) g("event", "conversion", { send_to: `${ADS_ID}/${label}`, value: params.value, currency: params.currency, transaction_id: params.transaction_id });
+      if (label) g("event", "conversion", {
+        send_to: `${ADS_ID}/${label}`,
+        value: params.value ?? ADS_DEFAULT_VALUE[name],
+        currency: params.currency ?? "USD",
+        ...(params.transaction_id ? { transaction_id: params.transaction_id } : {}),
+      });
     } catch { /* analytics must never break the app */ }
     return;
   }
