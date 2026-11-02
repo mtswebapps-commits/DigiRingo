@@ -267,7 +267,7 @@ export function DashboardShell() {
       <InCallScreen desktop />
 
       {/* ---------- Toasts ---------- */}
-      <div style={{ position: "absolute", top: 16, right: 20, zIndex: 400, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none", maxWidth: 380 }}>
+      <div style={{ position: "absolute", top: 16, right: 20, zIndex: 500, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none", maxWidth: 380 }}>
         {toasts.map((t) => (
           <div key={t.id} style={{
             padding: "12px 16px", borderRadius: 14,

@@ -12,6 +12,9 @@ import { getToken } from "./services/api";
 
 export const isNative = (): boolean => Capacitor.isNativePlatform();
 
+/** Fired on the Android Back button; call preventDefault() if the app handled it. */
+export const BACK_EVENT = "dg-back";
+
 /** Keep the status-bar icons readable against the current app theme. */
 export async function syncStatusBar(theme: "light" | "dark"): Promise<void> {
   if (!isNative()) return;
@@ -30,10 +33,12 @@ export async function initNative(): Promise<void> {
     await SplashScreen.hide().catch(() => {});
   } catch { /* plugin unavailable */ }
 
-  // Hardware back button: let the web app handle history; exit only at the root.
+  // Hardware back button: the app shell gets it first; exit only at the root.
   try {
     const { App } = await import("@capacitor/app");
     App.addListener("backButton", ({ canGoBack }) => {
+      // A screen that handled Back calls preventDefault, which makes dispatchEvent false.
+      if (!window.dispatchEvent(new Event(BACK_EVENT, { cancelable: true }))) return;
       if (canGoBack) window.history.back();
       else App.exitApp();
     });

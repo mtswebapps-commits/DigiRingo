@@ -8,6 +8,7 @@ import { countryName, flagOf, isoOfE164 } from "./core/countries";
 
 import { AuthScreen } from "./screens/AuthScreen";
 import { VerifyEmailBar } from "./components/VerifyEmailBar";
+import { BACK_EVENT } from "./native";
 import { HomeScreen } from "./screens/HomeScreen";
 import { NumbersScreen } from "./screens/NumbersScreen";
 import { InboxScreen } from "./screens/InboxScreen";
@@ -63,6 +64,20 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
   const [overlay, setOverlay] = useState<Overlay>(null);
   useEffect(() => { if (!preview) monitorScreen(overlay?.name ?? activeTab); }, [preview, overlay?.name, activeTab]);
   const [showBuy, setShowBuy] = useState(false);
+
+  // Android Back steps back through the app; it only exits from the Home tab.
+  useEffect(() => {
+    if (preview) return;
+    const onBack = (e: Event) => {
+      if (showBuy) setShowBuy(false);
+      else if (overlay) setOverlay(null);
+      else if (activeTab !== "home") setActiveTab("home");
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener(BACK_EVENT, onBack);
+    return () => window.removeEventListener(BACK_EVENT, onBack);
+  }, [preview, showBuy, overlay, activeTab]);
   // A phone number to pre-fill the inbox compose with (e.g. "message" from a call).
   const [composeTo, setComposeTo] = useState<string | null>(null);
 
@@ -150,7 +165,7 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
         )}
 
         {/* Toasts */}
-        <div style={{ position: "absolute", top: 14, left: 14, right: 14, zIndex: 300, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+        <div style={{ position: "absolute", top: 14, left: 14, right: 14, zIndex: 500, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
           {toasts.map((t) => (
             <div key={t.id} style={{
               padding: "12px 16px", borderRadius: 14,
@@ -203,7 +218,7 @@ export function PhoneGate({ preview }: { preview?: boolean } = {}) {
       <div className="tab-screen" style={{ position: "absolute", inset: 0, overflowY: "auto" }}>
         {screen}
       </div>
-      <div style={{ position: "absolute", top: 14, left: 14, right: 14, zIndex: 300, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+      <div style={{ position: "absolute", top: 14, left: 14, right: 14, zIndex: 500, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
         {toasts.map((t) => (
           <div key={t.id} style={{ padding: "12px 16px", borderRadius: 14, background: t.type === "success" ? "linear-gradient(135deg,#16a34a,#15803d)" : "linear-gradient(135deg,#dc2626,#b91c1c)", color: "#fff", fontSize: 13, fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", animation: "slideDown 0.28s ease", display: "flex", alignItems: "center", gap: 10, border: "1px solid rgba(255,255,255,0.12)" }}>
             <span style={{ fontSize: 15 }}>{t.type === "success" ? "✓" : "✕"}</span>{t.message}
