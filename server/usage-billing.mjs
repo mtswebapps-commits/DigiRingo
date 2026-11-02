@@ -17,6 +17,7 @@
 import { isDomestic, rateKey } from "./usage-rates.mjs";
 
 const SYNC_EVERY_MS = 3 * 60_000;
+const FAILURES_BEFORE_ERROR = 3;
 const OVERLAP_MS = 6 * 3600_000; // re-read this far back: records can land late
 const PAGE_SIZE = 250;
 const MAX_PAGES = 40;
@@ -28,6 +29,7 @@ const money = (v) => Math.max(0, Number(v) || 0);
 
 export function createUsageSync({ db, telnyxFetch }) {
   let running = false;
+  let failures = 0;
 
   async function fetchAll(recordType, timeField, sinceMs) {
     const out = [];
@@ -156,9 +158,13 @@ export function createUsageSync({ db, telnyxFetch }) {
       const calls = await billCalls(from);
       const msgs = await billMessages(from);
       await db.setBillingState("usage_last_ok", now);
+      failures = 0;
       if (calls || msgs) console.log(`usage billing: ${calls} call leg(s), ${msgs} message(s) billed`);
     } catch (e) {
-      console.error("usage billing sync failed:", e.message);
+      // Telnyx 5xx blips clear by a later run and nothing is lost, because usage_last_ok
+      // didn't move. Only a run of failures is a real problem worth an alert.
+      failures++;
+      (failures >= FAILURES_BEFORE_ERROR ? console.error : console.warn)("usage billing sync failed:", e.message);
     } finally {
       running = false;
     }

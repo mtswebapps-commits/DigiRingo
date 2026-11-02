@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
+import { AppUpdate } from "@capawesome/capacitor-app-update";
 import { gradients, font } from "../core/theme";
 import { currentCall, subscribeCall } from "../services/voice";
 import { monitorEvent } from "../services/monitor";
@@ -36,7 +37,6 @@ type Phase =
   | { name: "ready" };
 
 const callInProgress = () => { const c = currentCall(); return !!c && c.phase !== "ended" && c.phase !== "failed"; };
-const loadPlugin = () => import("@capawesome/capacitor-app-update").then((m) => m.AppUpdate);
 
 function isSnoozed(code: string | undefined): boolean {
   try {
@@ -55,7 +55,7 @@ export function UpdatePrompt() {
   const availableCode = useRef<string | undefined>(undefined);
 
   const openStore = useCallback(async () => {
-    try { await (await loadPlugin()).openAppStore({ androidPackageName: PACKAGE_NAME }); }
+    try { await AppUpdate.openAppStore({ androidPackageName: PACKAGE_NAME }); }
     catch (e) { monitorEvent("action", "App update: could not open Play", String(e), "warn"); }
   }, []);
 
@@ -63,7 +63,6 @@ export function UpdatePrompt() {
     const now = phaseRef.current.name;
     if (now === "downloading" || now === "ready") return;
     try {
-      const AppUpdate = await loadPlugin();
       const info = await AppUpdate.getAppUpdateInfo();
       if (info.installStatus === STATUS_DOWNLOADED) { setPhase({ name: "ready" }); return; }
       const required = (info.updatePriority ?? 0) >= REQUIRED_PRIORITY && !!info.immediateUpdateAllowed;
@@ -81,7 +80,7 @@ export function UpdatePrompt() {
   // Installing restarts the app, which would cut a call, so never do it during one.
   const install = useCallback(async () => {
     if (callInProgress()) return;
-    try { await (await loadPlugin()).completeFlexibleUpdate(); }
+    try { await AppUpdate.completeFlexibleUpdate(); }
     catch (e) { monitorEvent("action", "App update: install failed", String(e), "warn"); }
   }, []);
 
@@ -92,7 +91,7 @@ export function UpdatePrompt() {
     const keep = (h: { remove: () => Promise<void> }) => { if (gone) void h.remove(); else handles.push(h); };
 
     const first = setTimeout(() => { void check(); }, 2500); // let the app settle first
-    void loadPlugin().then((AppUpdate) => AppUpdate.addListener("onFlexibleUpdateStateChange", (s) => {
+    void AppUpdate.addListener("onFlexibleUpdateStateChange", (s) => {
       if (s.installStatus === STATUS_DOWNLOADING) {
         const percent = s.totalBytesToDownload ? Math.round(((s.bytesDownloaded ?? 0) / s.totalBytesToDownload) * 100) : null;
         setPhase({ name: "downloading", percent });
@@ -105,7 +104,7 @@ export function UpdatePrompt() {
         setPhase({ name: "idle" });
         if (s.installStatus === STATUS_FAILED) monitorEvent("action", "App update: download failed", undefined, "warn");
       }
-    })).then(keep).catch(() => {});
+    }).then(keep).catch(() => {});
     void import("@capacitor/app").then(({ App }) => App.addListener("appStateChange", ({ isActive }) => {
       if (isActive) void check();
       else if (phaseRef.current.name === "ready") void install(); // Play installs quietly while we're in the background
@@ -120,7 +119,6 @@ export function UpdatePrompt() {
     const required = phase.name === "available" && phase.required;
     monitorEvent("action", `App update accepted${required ? " (required)" : ""}`);
     try {
-      const AppUpdate = await loadPlugin();
       if (required) {
         // Stays on screen if the user backs out, because the popup has no "Later".
         const r = await AppUpdate.performImmediateUpdate();

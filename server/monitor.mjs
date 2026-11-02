@@ -48,7 +48,8 @@ const ACTIONS = [
 // Too chatty or not meaningful, even when they fail.
 const QUIET = /^\/api\/(monitor|admin\/monitor|voice\/heartbeat|activity\/read|push\/|user\/push-token|telnyx\/rtc-token|status)/;
 // Browser noise that says nothing about our code.
-const IGNORE_CLIENT = /ResizeObserver loop|^Script error\.?$|Non-Error promise rejection/i;
+// AppUpdate.then(): harmless noise from app v2.4 only, which can't be fixed on phones that still run it.
+const IGNORE_CLIENT = /ResizeObserver loop|^Script error\.?$|Non-Error promise rejection|"AppUpdate\.then\(\)"/i;
 const WEBHOOKS = [["/webhooks/telnyx", "telnyx-webhook"], ["/webhooks/texml", "texml-webhook"], ["/api/freemius/webhook", "freemius-webhook"], ["/api/paypal/webhook", "paypal-webhook"]];
 
 /** Removes anything secret-looking before it is stored. */

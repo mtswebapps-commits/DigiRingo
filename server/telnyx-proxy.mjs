@@ -2359,13 +2359,16 @@ const handleRequest = async (req, res) => {
           catch (e) { console.error("verify email failed:", e.message); }
         }
         const { verifyToken, ...safe } = result; // never expose the token to the client
+        res.monUid = result.user?.id;
         return send(res, 200, safe);
       }
       if (req.method === "POST" && req.url.startsWith("/api/auth/verify")) {
         return send(res, 200, await db.verifyEmail(data.token));
       }
       if (req.method === "POST" && req.url.startsWith("/api/auth/login")) {
-        return send(res, 200, await db.loginUser(data.email, data.password));
+        const result = await db.loginUser(data.email, data.password);
+        res.monUid = result.user?.id; // no token on this request yet, so tell the activity feed who it was
+        return send(res, 200, result);
       }
       if (req.method === "POST" && req.url.startsWith("/api/auth/forgot")) {
         const r = await db.createResetToken(data.email);
@@ -3173,7 +3176,7 @@ createServer((req, res) => {
   res.on("finish", () => {
     if (!monitor) return;
     try {
-      const uid = db ? db.verifyToken(bearer(req)) : null;
+      const uid = res.monUid ?? (db ? db.verifyToken(bearer(req)) : null);
       monitor.onRequest({ method: req.method, url: req.url, status: res.statusCode, ms: Date.now() - startedAt, uid: uid ? Number(uid) : null, ip: clientIp(req), errorMessage: res.monError, logged: res.monLogged });
     } catch { /* monitoring must never affect a request */ }
   });

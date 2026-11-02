@@ -242,6 +242,8 @@ async function fetchCreds(): Promise<{ loginToken: string | null; login: string 
   return { loginToken: j.loginToken ?? null, login: j.login ?? null, password: j.password ?? null, callerNumber: j.callerNumber ?? null, callerName: j.callerName ?? null };
 }
 
+let voiceDropped = false;
+
 /** Connect + register the WebRTC client once; resolves when ready to call/receive. */
 function ensureClient(): Promise<void> {
   if (!live) return Promise.resolve();
@@ -259,13 +261,14 @@ function ensureClient(): Promise<void> {
         if (client) { try { client.disconnect(); } catch { /* ignore */ } client = null; }
         client = new TelnyxRTC(loginToken ? { login_token: loginToken } : { login: login!, password: password! });
         client.remoteElement = REMOTE_AUDIO_ID;
-        client.on("telnyx.ready", () => { registered = true; clearTimeout(timeout); console.info("[voice] registered (ready for inbound + outbound)"); resolve(); });
+        client.on("telnyx.ready", () => { registered = true; if (voiceDropped) { voiceDropped = false; monitorEvent("call", "Voice connected again"); } clearTimeout(timeout); console.info("[voice] registered (ready for inbound + outbound)"); resolve(); });
         client.on("telnyx.notification", onNotification);
-        client.on("telnyx.socket.close", () => { console.warn("[voice] socket closed"); monitorEvent("call", "Voice connection dropped", undefined, "warn"); registered = false; readyPromise = null; });
+        client.on("telnyx.socket.close", () => { console.warn("[voice] socket closed"); voiceDropped = true; monitorEvent("call", "Voice connection dropped", undefined, "warn"); registered = false; readyPromise = null; });
         client.on("telnyx.error", (e: unknown) => {
           const msg = (e as { error?: { message?: string } })?.error?.message || "Voice connection error";
           console.warn("[voice] error:", msg);
-          monitorEvent("call", `Voice error: ${msg}`, undefined, "error");
+          // The SDK retries by itself, so a lost connection only counts as an error when it hits a live call.
+          monitorEvent("call", `Voice error: ${msg}`, undefined, snap && snap.phase !== "ended" ? "error" : "warn");
           clearTimeout(timeout);
           if (snap && snap.phase !== "ended") { endCall(); emit({ phase: "failed", error: msg }); }
           reject(new Error(msg));

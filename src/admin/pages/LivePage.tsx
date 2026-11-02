@@ -34,7 +34,7 @@ export function LivePage({ toast, onOpenIssues }: { toast: (m: string) => void; 
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)", gap: 14, marginBottom: 18 }}>
         <Card>
-          <p style={{ color: A.text, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Active users per hour, last 24 hours</p>
+          <p style={{ color: A.text, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>People active per hour, last 24 hours (including visitors not signed in)</p>
           {series.length === 0 ? <div style={{ height: 200, display: "grid", placeItems: "center", color: A.muted, fontSize: 13 }}>Starts filling in as people use the app.</div> : (
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={series} margin={{ left: -22, right: 6 }}>
