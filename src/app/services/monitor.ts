@@ -116,11 +116,12 @@ export function monitorEvent(k: Kind, name: string, detail?: string, level: Leve
   } catch { /* never break the app */ }
 }
 
-/** The screen the user is looking on now (Home, Inbox, Wallet…). */
+/** The screen the user is looking at now (Home, Inbox, Wallet…). */
 export function monitorScreen(name: string): void {
   if (!name || name === screen) return;
   screen = name;
   monitorEvent("screen", `Opened ${name}`);
+  if (started) schedule(1500); // keep "Online now" on the right screen without waiting for the next beat
 }
 
 export function monitorError(error: unknown, where?: string): void {
@@ -132,7 +133,7 @@ export function monitorError(error: unknown, where?: string): void {
 export function startMonitor(): void {
   if (started || typeof window === "undefined") return;
   started = true;
-  version = (() => { try { return `web ${__BUILD_ID__}`; } catch { return "web"; } })();
+  version = (() => { try { return __BUILD_ID__; } catch { return ""; } })();
   if (Capacitor.isNativePlatform()) {
     void import("@capacitor/app")
       .then(({ App }) => App.getInfo())
