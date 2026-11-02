@@ -2,6 +2,7 @@ import { AppProvider, useApp } from "./store/AppStore";
 import { colors as C, THEME_VARS } from "./core/theme";
 import { ThemeProvider } from "./core/theme-context";
 import { PhoneFrame } from "./components/PhoneFrame";
+import { UpdatePrompt } from "./components/UpdatePrompt";
 import { PhoneGate } from "./MobileShell";
 import { DashboardShell } from "./DashboardShell";
 import { DesktopAuthScreen } from "./screens/DesktopAuthScreen";
@@ -107,6 +108,7 @@ export default function App() {
       <ThemeProvider>
         <AppProvider>
           <Root />
+          <UpdatePrompt />
         </AppProvider>
       </ThemeProvider>
     </>

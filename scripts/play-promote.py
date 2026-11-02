@@ -15,6 +15,7 @@ Env / inputs:
   ROLLOUT_FRACTION           e.g. 0.1 for a 10% staged rollout (only with
                              STATUS=inProgress)
   RELEASE_NAME               release name shown in console (default = versionName)
+  UPDATE_PRIORITY            in-app update priority 0-5 (blank = Play's default, 0)
 
 Note: a brand-new app that has never had a live production release can only
 create *draft* production releases via the API. The very first go-live must be
@@ -43,6 +44,7 @@ def main() -> int:
     version_code = os.environ.get("VERSION_CODE", "").strip()
     fraction = os.environ.get("ROLLOUT_FRACTION", "").strip()
     rel_name = os.environ.get("RELEASE_NAME", "").strip()
+    priority = os.environ.get("UPDATE_PRIORITY", "").strip()
 
     creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
     svc = build("androidpublisher", "v3", credentials=creds, cache_discovery=False)
@@ -66,6 +68,10 @@ def main() -> int:
             release["name"] = rel_name
         if status == "inProgress" and fraction:
             release["userFraction"] = float(fraction)
+        # The app treats 4 or 5 as a required update (src/app/components/UpdatePrompt.tsx).
+        # Play fixes this when the release is created; it can't be changed afterwards.
+        if priority:
+            release["inAppUpdatePriority"] = int(priority)
 
         svc.edits().tracks().update(
             packageName=pkg, editId=eid, track=track,

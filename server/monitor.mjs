@@ -72,10 +72,16 @@ function fingerprint(source, name) {
 
 function deviceFromUa(ua = "") {
   const os = /Android ([\d.]+)/.exec(ua)?.[0] || (/iPhone|iPad/.test(ua) && "iOS") || (/Windows NT/.test(ua) && "Windows") || (/Mac OS X/.test(ua) && "macOS") || (/Linux/.test(ua) && "Linux") || "Unknown OS";
-  const m = /(Edg|OPR|SamsungBrowser|Chrome|Firefox|Version)\/(\d+)/.exec(ua);
-  const name = m ? { Edg: "Edge", OPR: "Opera", SamsungBrowser: "Samsung", Chrome: "Chrome", Firefox: "Firefox", Version: "Safari" }[m[1]] : "";
-  const model = /Android [\d.]+; ([^;)]+?)(?: Build|\))/.exec(ua)?.[1];
-  return [model, os, name && `${name} ${m[2]}`].filter(Boolean).join(" · ").slice(0, 120);
+  // Most specific first: Edge and Opera also say "Chrome", and Chrome and the Android app's WebView also say "Version" or "Safari".
+  const chrome = /; wv\)/.test(ua) ? "App WebView" : "Chrome";
+  const browsers = [["Edg", "Edge"], ["OPR", "Opera"], ["SamsungBrowser", "Samsung"], ["Firefox", "Firefox"], ["Chrome", chrome], ["Version", "Safari"]];
+  let browser = "";
+  for (const [token, name] of browsers) {
+    const v = new RegExp(`\\b${token}/(\\d+)`).exec(ua)?.[1];
+    if (v) { browser = `${name} ${v}`; break; }
+  }
+  const model = /Android [\d.]+; ([^;)]+?)(?: Build|; wv|\))/.exec(ua)?.[1];
+  return [model, os, browser].filter(Boolean).join(" · ").slice(0, 120);
 }
 
 function percentile(sorted, p) { return sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : 0; }

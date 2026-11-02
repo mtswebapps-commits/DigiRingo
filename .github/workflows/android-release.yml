@@ -28,6 +28,10 @@ on:
         description: "Staged rollout fraction, e.g. 0.1 (only with status=inProgress)"
         required: false
         default: ""
+      required_update:
+        description: "Required update: users can't skip it in the app. Can't be changed after release."
+        type: boolean
+        default: false
 
 jobs:
   promote:
@@ -52,4 +56,5 @@ jobs:
           STATUS: ${{ inputs.status }}
           VERSION_CODE: ${{ inputs.version_code }}
           ROLLOUT_FRACTION: ${{ inputs.rollout_fraction }}
+          UPDATE_PRIORITY: ${{ inputs.required_update && '5' || '' }}
         run: python scripts/play-promote.py

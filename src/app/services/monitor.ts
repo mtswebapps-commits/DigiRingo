@@ -133,13 +133,8 @@ export function monitorError(error: unknown, where?: string): void {
 export function startMonitor(): void {
   if (started || typeof window === "undefined") return;
   started = true;
-  version = (() => { try { return __BUILD_ID__; } catch { return ""; } })();
-  if (Capacitor.isNativePlatform()) {
-    void import("@capacitor/app")
-      .then(({ App }) => App.getInfo())
-      .then((i) => { version = `${i.version} (${i.build})`; })
-      .catch(() => {});
-  }
+  const native = Capacitor.isNativePlatform();
+  if (!native) version = (() => { try { return __BUILD_ID__; } catch { return ""; } })();
   window.addEventListener("error", (e) => monitorError(e.error ?? e.message));
   window.addEventListener("unhandledrejection", (e) => monitorError(e.reason, "Unhandled"));
   document.addEventListener("visibilitychange", () => {
@@ -147,6 +142,15 @@ export function startMonitor(): void {
     else { void send(); schedule(); }           // back again
   });
   window.addEventListener("pagehide", () => { void send(true); });
-  void send();
+  if (native) {
+    // The first beat waits for the real version, so even a very short session is labelled right.
+    void import("@capacitor/app")
+      .then(({ App }) => App.getInfo())
+      .then((i) => { version = `${i.version} (${i.build})`; })
+      .catch(() => {})
+      .finally(() => { void send(); });
+  } else {
+    void send();
+  }
   schedule();
 }

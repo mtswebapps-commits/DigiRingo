@@ -38,6 +38,9 @@ importers:
       '@capacitor/status-bar':
         specifier: ^8.0.2
         version: 8.0.2(@capacitor/core@8.4.1)
+      '@capawesome/capacitor-app-update':
+        specifier: 8.1.1
+        version: 8.1.1(@capacitor/core@8.4.1)
       '@emotion/react':
         specifier: 11.14.0
         version: 11.14.0(@types/react@19.2.17)(react@18.3.1)
@@ -365,6 +368,11 @@ packages:
 
   '@capacitor/status-bar@8.0.2':
     resolution: {integrity: sha512-WXs8YB8B9eEaPZz+bcdY6t2nForF1FLoj/JU0Dl9RRgQnddnS98FEEyDooQhaY7wivr000j4+SC1FyeJkrFO7A==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+
+  '@capawesome/capacitor-app-update@8.1.1':
+    resolution: {integrity: sha512-1TzM4hMN4wgCDu3O0UhaIIoVspUFNfNJ+q+K/EKSQRKkfCbG79S1Fn/sXwMdtMO1Me55LQxdjw1I9rctFtKBOQ==}
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
@@ -3369,6 +3377,10 @@ snapshots:
       '@capacitor/core': 8.4.1
 
   '@capacitor/status-bar@8.0.2(@capacitor/core@8.4.1)':
+    dependencies:
+      '@capacitor/core': 8.4.1
+
+  '@capawesome/capacitor-app-update@8.1.1(@capacitor/core@8.4.1)':
     dependencies:
       '@capacitor/core': 8.4.1
 
