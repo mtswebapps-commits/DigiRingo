@@ -60,7 +60,8 @@ function enqueue(e: QueuedEvent) {
 
 /** Sends the heartbeat and everything queued. Failed events stay queued for the next try. */
 async function send(ended = false) {
-  if (sending) return;
+  // Opened with the phone locked, the page is hidden before the app knows its version.
+  if (sending || (!version && Capacitor.isNativePlatform())) return;
   sending = true;
   const events = queue.slice(0, 60);
   queue = queue.slice(events.length);
@@ -147,7 +148,7 @@ export function startMonitor(): void {
     void import("@capacitor/app")
       .then(({ App }) => App.getInfo())
       .then((i) => { version = `${i.version} (${i.build})`; })
-      .catch(() => {})
+      .catch(() => { version = "unknown"; })
       .finally(() => { void send(); });
   } else {
     void send();
