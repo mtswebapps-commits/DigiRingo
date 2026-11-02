@@ -33,6 +33,15 @@
                 <data android:scheme="com.digiringo.app" android:host="oauth" />
             </intent-filter>
 
+            <!-- Email verification links open the app directly (Android App Links;
+                 the site publishes /.well-known/assetlinks.json). AppStore handles it. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="digiringo.com" android:pathPrefix="/verify-email" />
+            </intent-filter>
+
         </activity>
 
         <provider

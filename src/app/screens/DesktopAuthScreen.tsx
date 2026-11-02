@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
 import { Mail, Lock, User as UserIcon, ArrowRight, ArrowUpRight } from "lucide-react";
-import { useApp } from "../store/AppStore";
+import { useApp, defaultAuthMode } from "../store/AppStore";
 import { apiForgotPassword } from "../services/api";
 import { fetchOAuthProviders, startOAuth, type OAuthProviders } from "../services/oauth";
 import { DgrMark } from "../components/DgrMark";
@@ -13,7 +13,7 @@ import { DgrMark } from "../components/DgrMark";
  */
 export function DesktopAuthScreen() {
   const { login, showToast } = useApp();
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup">(defaultAuthMode);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
@@ -27,7 +27,7 @@ export function DesktopAuthScreen() {
   const submit = async () => {
     if (busy) return;
     if (!email.trim() || !pw.trim() || (mode === "signup" && !name.trim())) {
-      showToast("Please fill in all fields", "error"); return;
+      showToast(mode === "signup" ? "Please enter your name, email and password" : "Enter your email and password, or create an account if you're new", "error"); return;
     }
     setBusy(true);
     const res = await login(email.trim(), pw, mode === "signup" ? name.trim() : undefined);
@@ -59,7 +59,7 @@ export function DesktopAuthScreen() {
             </div>
             <h2 className="dgauth-hero">Borderless.<br /><span className="dgauth-grad">Effortless.</span></h2>
             <p className="dgauth-sub">
-              One app for every number — call, text and manage real local lines in 8+
+              One app for every number — call, text and manage real local lines in 100+
               countries. No SIM, no contract, no second phone.
             </p>
           </div>

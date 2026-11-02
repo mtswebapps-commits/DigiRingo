@@ -7,7 +7,7 @@ import type { PhoneNumber } from "./core/types";
 import { countryName, flagOf, isoOfE164 } from "./core/countries";
 
 import { AuthScreen } from "./screens/AuthScreen";
-import { VerifyGateScreen } from "./screens/VerifyGateScreen";
+import { VerifyEmailBar } from "./components/VerifyEmailBar";
 import { HomeScreen } from "./screens/HomeScreen";
 import { NumbersScreen } from "./screens/NumbersScreen";
 import { InboxScreen } from "./screens/InboxScreen";
@@ -124,6 +124,8 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
     <>
       {/* Call-notification permission bar — prominent, above everything. */}
       <NotifyBar />
+      {/* Stays on every screen until the email is verified. */}
+      <VerifyEmailBar />
 
       {/* Main content */}
       <div style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
@@ -191,12 +193,11 @@ export function Shell({ preview }: { preview?: boolean } = {}) {
   );
 }
 
-/** Phone auth gate — login until a user exists, then a hard email-verification
- *  gate until the email is confirmed, then the full phone app. */
+/** Phone auth gate — login until a user exists, then the full phone app. */
 export function PhoneGate({ preview }: { preview?: boolean } = {}) {
   const { state, toasts } = useApp();
-  if (state.user && state.user.emailVerified !== false) return <Shell preview={preview} />;
-  const screen = state.user ? <VerifyGateScreen /> : <AuthScreen />;
+  if (state.user) return <Shell preview={preview} />;
+  const screen = <AuthScreen />;
   return (
     <div style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
       <div className="tab-screen" style={{ position: "absolute", inset: 0, overflowY: "auto" }}>

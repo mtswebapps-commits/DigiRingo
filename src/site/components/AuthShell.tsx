@@ -57,7 +57,7 @@ function DefaultAside() {
       </p>
       <div style={{ marginTop: 30, display: "grid", gap: 14 }}>
         {[
-          "Real local numbers in 8+ countries",
+          "Real local numbers in 100+ countries",
           "No SIM, no contract, no second phone",
           "Live in under 60 seconds",
         ].map((t) => (

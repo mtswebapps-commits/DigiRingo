@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
 import { Mail, Lock, User as UserIcon, ArrowRight } from "lucide-react";
 import { C, gradients, font, radius } from "../core/theme";
-import { useApp } from "../store/AppStore";
+import { useApp, defaultAuthMode } from "../store/AppStore";
 import { apiForgotPassword } from "../services/api";
 import { fetchOAuthProviders, startOAuth, type OAuthProviders } from "../services/oauth";
 import { DgrMark } from "../components/DgrMark";
@@ -10,7 +10,7 @@ import { SocialButtons } from "../components/SocialButtons";
 /** Sign up / Log in. Gates the whole app — nothing is reachable until logged in. */
 export function AuthScreen() {
   const { login, showToast } = useApp();
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup">(defaultAuthMode);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
@@ -34,7 +34,7 @@ export function AuthScreen() {
   const submit = async () => {
     if (busy) return;
     if (!email.trim() || !pw.trim() || (mode === "signup" && !name.trim())) {
-      showToast("Please fill in all fields", "error");
+      showToast(mode === "signup" ? "Please enter your name, email and password" : "Enter your email and password, or tap Sign Up if you're new", "error");
       return;
     }
     setBusy(true);
@@ -58,7 +58,7 @@ export function AuthScreen() {
         }}><DgrMark w={42} /></div>
         <h1 style={{ color: C.text, fontSize: 26, fontWeight: 800 }}>DIGIRINGO</h1>
         <p style={{ color: C.muted, fontSize: 13, marginTop: 6 }}>
-          {forgot ? "Reset your password" : mode === "signup" ? "Create your workspace" : "Log in to your workspace"}
+          {forgot ? "Reset your password" : mode === "signup" ? "Phone numbers from 100+ countries. Call and text from one app." : "Log in to your workspace"}
         </p>
       </div>
 
@@ -125,6 +125,13 @@ export function AuthScreen() {
               {!busy && <ArrowRight size={17} />}
             </button>
           </form>
+
+          <p style={{ color: C.muted, fontSize: 13, textAlign: "center", marginTop: 16 }}>
+            {mode === "signup" ? "Already have an account? " : "New to DIGIRINGO? "}
+            <button type="button" onClick={() => setMode(mode === "signup" ? "login" : "signup")} style={{ background: "none", border: "none", padding: 0, color: C.blue, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font.sans }}>
+              {mode === "signup" ? "Log in" : "Create an account"}
+            </button>
+          </p>
 
           <SocialButtons
             providers={providers}

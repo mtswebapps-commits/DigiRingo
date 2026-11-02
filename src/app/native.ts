@@ -12,14 +12,18 @@ import { getToken } from "./services/api";
 
 export const isNative = (): boolean => Capacitor.isNativePlatform();
 
-export async function initNative(): Promise<void> {
+/** Keep the status-bar icons readable against the current app theme. */
+export async function syncStatusBar(theme: "light" | "dark"): Promise<void> {
   if (!isNative()) return;
-
   try {
     const { StatusBar, Style } = await import("@capacitor/status-bar");
-    await StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
-    await StatusBar.setBackgroundColor({ color: "#0b1020" }).catch(() => {});
+    await StatusBar.setStyle({ style: theme === "dark" ? Style.Dark : Style.Light }).catch(() => {});
+    await StatusBar.setBackgroundColor({ color: theme === "dark" ? "#0a0d14" : "#f5f7fb" }).catch(() => {});
   } catch { /* plugin unavailable */ }
+}
+
+export async function initNative(): Promise<void> {
+  if (!isNative()) return;
 
   try {
     const { SplashScreen } = await import("@capacitor/splash-screen");

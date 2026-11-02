@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.digiringo.app",
+      "sha256_cert_fingerprints": ["47:82:72:EF:93:5E:41:91:E2:99:BE:99:B6:98:EE:28:32:28:99:51:50:48:01:19:76:BC:08:71:24:5A:DE:64"]
+    }
+  }
+]

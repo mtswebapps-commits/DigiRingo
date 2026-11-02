@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Sun, Moon } from "lucide-react";
 import { colors as C } from "./theme";
+import { syncStatusBar } from "../native";
 
 /**
  * App theme (light / dark). The choice persists in localStorage under the SAME
@@ -22,6 +23,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     try { localStorage.setItem(KEY, theme); } catch { /* ignore */ }
+    void syncStatusBar(theme);
   }, [theme]);
   return <Ctx.Provider value={{ theme, toggle: () => setTheme((t) => (t === "dark" ? "light" : "dark")) }}>{children}</Ctx.Provider>;
 }

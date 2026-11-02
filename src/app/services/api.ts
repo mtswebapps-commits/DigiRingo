@@ -57,6 +57,10 @@ export const apiLogin = (email: string, password: string) =>
 
 export const apiMe = () => req<ApiUser>("/api/auth/me");
 
+/** Consume the token from a verification link. */
+export const apiVerifyEmail = (token: string) =>
+  req<{ ok: boolean }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ token }) });
+
 /** Resend the signup verification email to the logged-in user. */
 export const apiResendVerification = () =>
   req<{ ok: boolean; alreadyVerified?: boolean }>("/api/auth/resend-verification", { method: "POST" });

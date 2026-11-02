@@ -3,7 +3,7 @@ import { X, ChevronDown, Check, Search, Loader2, Wallet } from "lucide-react";
 import { NUMBER_RENTAL } from "../core/plans";
 import { DIAL_CODES, flagOf } from "../core/countries";
 import { apiNumberCountries } from "../services/api";
-import type { AvailableNumber, NumberLineType } from "../store/AppStore";
+import { useApp, type AvailableNumber, type NumberLineType } from "../store/AppStore";
 
 const C = {
   bg: "var(--dg-bg)", card: "var(--dg-card)", input: "var(--dg-input)", line: "var(--dg-line)",
@@ -78,6 +78,7 @@ function TypeBtn({ active, onClick, title, sub }: { active: boolean; onClick: ()
 }
 
 export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, onTopUp, desktop = false }: Props) {
+  const { requireVerified } = useApp();
   const [countries, setCountries] = useState<Country[]>(FALLBACK_COUNTRIES);
   const [country, setCountry] = useState<Country>(FALLBACK_COUNTRIES[0]);
   const [cDrop, setCDrop] = useState(false);
@@ -381,7 +382,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
             {selected && (
               <div style={{ position: "sticky", bottom: 0, paddingTop: 12, background: C.card }}>
                 <button
-                  onClick={() => setStep("pay")}
+                  onClick={() => { if (requireVerified()) setStep("pay"); }}
                   style={{
                     width: "100%", padding: "13px", border: "none", borderRadius: 13,
                     background: `linear-gradient(135deg,${C.blue},${C.purple})`, color: "#fff",
@@ -455,7 +456,7 @@ export function BuyNumberModal({ onClose, onSearch, walletBalance, onBuyNumber, 
 
             {!enough && (
               <p style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>
-                Not enough balance — top up ${(dueNow - walletBalance).toFixed(2)} more from the Wallet tab, then come back.
+                Not enough balance — top up ${(dueNow - walletBalance).toFixed(2)} more, then come back to finish.
               </p>
             )}
             <div style={{ display: "flex", gap: 10 }}>

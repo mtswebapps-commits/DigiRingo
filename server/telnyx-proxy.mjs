@@ -546,6 +546,17 @@ const PAGE_ROUTES = {
   "/delete-account": "delete-account.html",
 };
 
+/**
+ * New accounts open straight away, but nothing can be bought until the email is
+ * verified. Replies 403 and returns true when the account is still unverified.
+ */
+async function blockIfUnverified(res, uid) {
+  const user = await db.getUser(uid).catch(() => null);
+  if (!user || user.emailVerified !== false) return false;
+  send(res, 403, { error: "Verify your email to buy a number or top up.", code: "email_unverified" });
+  return true;
+}
+
 async function tryFile(absPath) {
   try {
     const s = await stat(absPath);
@@ -1752,6 +1763,7 @@ const handleRequest = async (req, res) => {
     const uid = db.verifyToken(bearer(req));
     if (!uid) return send(res, 401, { error: "Not authenticated" });
     if (!stripeConfigured()) return send(res, 503, { error: "Card payments are not configured" });
+    if (await blockIfUnverified(res, uid)) return;
     const body = await readBody(req);
     let g; try { g = JSON.parse(body || "{}"); } catch { g = {}; }
     const base = PUBLIC_BASE;
@@ -1784,6 +1796,7 @@ const handleRequest = async (req, res) => {
     const uid = db.verifyToken(bearer(req));
     if (!uid) return send(res, 401, { error: "Not authenticated" });
     if (!paypalConfigured()) return send(res, 503, { error: "PayPal is not configured" });
+    if (await blockIfUnverified(res, uid)) return;
     const body = await readBody(req);
     let g; try { g = JSON.parse(body || "{}"); } catch { g = {}; }
     const base = PUBLIC_BASE;
@@ -2355,7 +2368,7 @@ const handleRequest = async (req, res) => {
         // Email a verification link (best-effort — don't fail signup if mail is down).
         if (result.verifyToken) {
           const base = PUBLIC_BASE;
-          try { await sendVerifyEmail(result.user.email, result.user.name, `${base}/?verify=${result.verifyToken}`); }
+          try { await sendVerifyEmail(result.user.email, result.user.name, `${base}/verify-email?verify=${result.verifyToken}`); }
           catch (e) { console.error("verify email failed:", e.message); }
         }
         const { verifyToken, ...safe } = result; // never expose the token to the client
@@ -2392,7 +2405,7 @@ const handleRequest = async (req, res) => {
         const r = await db.createVerifyToken(uid);
         if (r && r.token) {
           const base = PUBLIC_BASE;
-          try { await sendVerifyEmail(r.user.email, r.user.name, `${base}/?verify=${r.token}`); }
+          try { await sendVerifyEmail(r.user.email, r.user.name, `${base}/verify-email?verify=${r.token}`); }
           catch (e) { console.error("verify email failed:", e.message); }
         }
         return send(res, 200, { ok: true, alreadyVerified: !!(r && r.alreadyVerified) });
@@ -2610,6 +2623,7 @@ const handleRequest = async (req, res) => {
     if (!telnyxKey()) return send(res, 503, { error: "Telephony not configured" });
     const uid = db.verifyToken(bearer(req));
     if (!uid) return send(res, 401, { error: "Not authenticated" });
+    if (await blockIfUnverified(res, uid)) return;
     const body = await readBody(req);
     let data; try { data = JSON.parse(body || "{}"); } catch { data = {}; }
     const phoneNumber = String(data.phoneNumber || "");
@@ -2686,6 +2700,7 @@ const handleRequest = async (req, res) => {
     if (!db) return send(res, 503, { error: "Database not configured" });
     const uid = db.verifyToken(bearer(req));
     if (!uid) return send(res, 401, { error: "Not authenticated" });
+    if (await blockIfUnverified(res, uid)) return;
     const body = await readBody(req);
     let data; try { data = JSON.parse(body || "{}"); } catch { data = {}; }
     const cycle = data.cycle === "annual" ? "annual" : "monthly";

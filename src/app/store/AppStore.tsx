@@ -15,11 +15,12 @@ import { getBundle, NUMBER_RENTAL } from "../core/plans";
 import type { BillingCycle, NumberKind, PayMethod } from "../core/plans";
 import { fetchRates } from "../core/rates";
 import { dialToE164 } from "../core/dial";
+import { Capacitor } from "@capacitor/core";
 import { trackSignUp, trackBuyNumber, trackWalletPurchases, setAdsUser } from "../services/analytics";
 import { monitorEvent } from "../services/monitor";
 import {
   apiLogin, apiRegister, apiMe, apiWallet, apiBuyNumber, apiReleaseNumber, apiSubscribe, apiGetSubscription, apiSetAutoRenew, apiCancelSubscription,
-  apiResendVerification, apiGetCalls, apiGetNumbers, apiLogCall,
+  apiResendVerification, apiVerifyEmail, apiGetCalls, apiGetNumbers, apiLogCall,
   apiGetActivity, apiLogActivity, apiMarkActivityRead, saveToken, clearToken, getToken, isNetworkError,
   apiTenDlc, apiTenDlcBrand, apiTenDlcOtp, apiTenDlcCampaign, apiTenDlcAssign, type ApiTenDlc,
   type ApiUser, type ApiWallet, type ApiSubscription, type ApiCallLog, type ApiOwnedNumber, type ApiActivityItem,
@@ -439,11 +440,19 @@ interface Store {
   /** Resend the signup email-verification link. */
   resendVerification: () => Promise<void>;
   /** Re-fetch the current user (e.g. to refresh email-verified status). */
-  refreshUser: () => Promise<void>;
+  refreshUser: () => Promise<boolean>;
+  /** True if the email is verified; otherwise tells the user and returns false. */
+  requireVerified: () => boolean;
   /** Re-fetch the subscription (usage + number-capacity) and raise limit alerts. */
   refreshSubscription: () => Promise<void>;
   searchNumbers: (countryIso: string, type: NumberLineType, areaCode?: string, limit?: number) => Promise<AvailableNumber[]>;
   readAllActivity: () => void;
+}
+
+const HAS_ACCOUNT_KEY = "dg-has-account";
+/** New devices start on Sign Up; a device that has been signed in before starts on Log In. */
+export function defaultAuthMode(): "login" | "signup" {
+  try { return localStorage.getItem(HAS_ACCOUNT_KEY) ? "login" : "signup"; } catch { return "signup"; }
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -587,9 +596,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Re-fetch the current user from the server (e.g. to pick up email_verified
   // after the user clicked the verification link on the web).
   const refreshUser: Store["refreshUser"] = useCallback(async () => {
-    if (telnyx.mode === "mock") return;
-    try { dispatch({ t: "LOGIN", user: toAppUser(await apiMe()) }); } catch { /* ignore */ }
+    if (telnyx.mode === "mock") return true;
+    try {
+      const user = toAppUser(await apiMe());
+      dispatch({ t: "LOGIN", user });
+      return user.emailVerified !== false;
+    } catch { return false; }
   }, []);
+
+  const unverifiedRef = useRef(false);
+  unverifiedRef.current = state.user?.emailVerified === false;
+  const requireVerified: Store["requireVerified"] = useCallback(() => {
+    if (!unverifiedRef.current) return true;
+    showToast("Verify your email first to buy a number or top up", "error");
+    return false;
+  }, [showToast]);
+
+  // Remember this device has an account, so a later logout lands on Log In.
+  useEffect(() => {
+    if (state.user?.id) { try { localStorage.setItem(HAS_ACCOUNT_KEY, "1"); } catch { /* ignore */ } }
+  }, [state.user?.id]);
+
+  // While unverified, pick up a link opened elsewhere (browser, other device) on its own.
+  const needsVerify = state.user?.emailVerified === false;
+  useEffect(() => {
+    if (!needsVerify || telnyx.mode === "mock") return;
+    const check = () => {
+      if (document.hidden) return;
+      void refreshUser().then((ok) => { if (ok) showToast("Email verified ✓"); });
+    };
+    const timer = window.setInterval(check, 20_000);
+    document.addEventListener("visibilitychange", check);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", check); };
+  }, [needsVerify, refreshUser, showToast]);
+
+  // Verification link opened straight into the app (Android App Links).
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let remove: (() => void) | undefined;
+    let cancelled = false;
+    void (async () => {
+      const { App } = await import("@capacitor/app");
+      const handle = await App.addListener("appUrlOpen", async ({ url }) => {
+        if (!url.includes("/verify-email")) return;
+        const token = new URL(url).searchParams.get("verify") || "";
+        try {
+          await apiVerifyEmail(token);
+          if (getToken()) await refreshUser();
+          showToast(getToken() ? "Email verified ✓" : "Email verified ✓ Log in to continue");
+        } catch (e) { showToast(e instanceof Error ? e.message : "Verification failed", "error"); }
+      });
+      if (cancelled) void handle.remove(); else remove = () => void handle.remove();
+    })().catch(() => {});
+    return () => { cancelled = true; remove?.(); };
+  }, [refreshUser, showToast]);
 
   // Re-fetch the subscription (usage + number-capacity) and raise limit alerts.
   const refreshSubscription: Store["refreshSubscription"] = useCallback(async () => {
@@ -1026,6 +1086,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // LIVE mode the server re-checks capacity and decides free-vs-paid — the client
   // price is a hint. A short wallet is topped up by card via Stripe elsewhere.
   const buyNumber: Store["buyNumber"] = useCallback(async (n, opts = {}) => {
+    if (!requireVerified()) return false;
     const kind: NumberKind = opts.kind ?? "local";
     const free = !!opts.free;
     const price = free ? 0 : (n.price > 0 ? n.price : NUMBER_RENTAL[kind]);
@@ -1097,6 +1158,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Subscribe to a bundle. Pay from wallet (default) or by card. LIVE only — the
   // server sets the price by tier+cycle, charges, and activates the plan.
   const subscribe: Store["subscribe"] = useCallback(async (tier, cycle, opts = {}) => {
+    if (!requireVerified()) return false;
     const pay: PayMethod = opts.pay ?? "wallet";
     // Mock mode (local dev / demo, no backend): activate locally so the flow works.
     if (telnyx.mode === "mock") {
@@ -1144,6 +1206,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // combined amount and the webhook activates the plan AND provisions the number
   // SERVER-SIDE; the browser redirects to Stripe and returns to ?pay=success.
   const subscribeByCardAndBuy: Store["subscribeByCardAndBuy"] = useCallback(async (n, tier, cycle) => {
+    if (!requireVerified()) return false;
     if (telnyx.mode === "mock") { // dev/demo: activate locally then charge the number
       const ok = await subscribe(tier, cycle, { pay: "card" });
       return ok ? buyNumber(n, { kind: "local", free: false }) : false;
@@ -1294,7 +1357,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login, loginWithToken, logout, selectNumber, registerNumber, registerBrand, refreshTenDlc, brandOtp, updateSettings,
       getNumberRequirements, submitNumberDoc, markNumberVerified,
       telnyxMode: telnyx.mode,
-      sendMessage, startConversation, markRead, deleteMessage, deleteConversation, placeCall, activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, toggleCallHold, toggleSpeaker, dismissCall, addBalance, setWallet, refreshWallet, syncBillingSoon, buyNumber, releaseNumber, subscribe, subscribeAndBuy, subscribeByCardAndBuy, setAutoRenew, cancelSubscription, resendVerification, refreshUser, refreshSubscription, searchNumbers, readAllActivity,
+      sendMessage, startConversation, markRead, deleteMessage, deleteConversation, placeCall, activeCall, answerCall, hangupCall, toggleCallMute, sendDtmf, toggleCallHold, toggleSpeaker, dismissCall, addBalance, setWallet, refreshWallet, syncBillingSoon, buyNumber, releaseNumber, subscribe, subscribeAndBuy, subscribeByCardAndBuy, setAutoRenew, cancelSubscription, resendVerification, refreshUser, requireVerified, refreshSubscription, searchNumbers, readAllActivity,
       updateUser, togglePref, block, unblock,
     }}>
       {children}

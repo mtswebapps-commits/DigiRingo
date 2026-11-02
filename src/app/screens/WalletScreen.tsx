@@ -10,7 +10,7 @@ interface Props { onBack?: () => void; onOpenTrust: () => void; desktop?: boolea
 const PACKS = [5, 10, 20, 50];
 
 export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
-  const { state, addBalance, showToast, syncBillingSoon } = useApp();
+  const { state, addBalance, showToast, syncBillingSoon, requireVerified } = useApp();
   const [sheet, setSheet] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
   const gateway: Gateway = "freemius";
@@ -37,6 +37,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
   const topUpSimulated = (amount: number) => { addBalance(amount); setSheet(false); showToast(`$${amount.toFixed(2)} added (test)`); };
 
   const topUp = async (amount: number) => {
+    if (!requireVerified()) return;
     if (!(amount > 0)) { showToast("Enter an amount", "error"); return; }
     if (!anyPaymentReady()) { topUpSimulated(amount); return; }
     setBusy(amount);
@@ -71,7 +72,7 @@ export function WalletScreen({ onBack, onOpenTrust, desktop }: Props) {
             ${Math.floor(state.wallet.balance)}<span style={{ fontSize: 28, fontWeight: 600 }}>.{(state.wallet.balance % 1).toFixed(2).slice(2)}</span>
           </p>
           <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 8, fontFamily: font.mono }}>DIGIRINGO Wallet • {state.user?.name}</p>
-          <button onClick={() => setSheet(true)} style={{ marginTop: 22, padding: "10px 22px", borderRadius: 12, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={() => { if (requireVerified()) setSheet(true); }} style={{ marginTop: 22, padding: "10px 22px", borderRadius: 12, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
             <Plus size={15} /> Top Up
           </button>
         </div>

@@ -5,6 +5,12 @@ import { useEffect, useState } from "react";
  * SiteApp renders this (bare) when the `verify` query param is present. Self-
  * contained — hits /api/auth/verify directly, no app/store imports.
  */
+const isAndroid = /Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+/** Reopens the installed app on Android; falls back to the web app if it isn't installed. */
+const OPEN_APP_HREF = isAndroid
+  ? `intent://oauth?verified=1#Intent;scheme=com.digiringo.app;package=com.digiringo.app;S.browser_fallback_url=${encodeURIComponent("https://digiringo.com/app")};end`
+  : "/app";
+
 export function VerifyPage() {
   const token = (() => { try { return new URLSearchParams(window.location.search).get("verify") || ""; } catch { return ""; } })();
   const [state, setState] = useState<"verifying" | "done" | "error">(token ? "verifying" : "error");
@@ -48,7 +54,7 @@ export function VerifyPage() {
             <p className="dg-lead" style={{ fontSize: 15, marginTop: 12 }}>
               Your email is confirmed. You're all set — head back to the app.
             </p>
-            <a href="/app" className="dg-btn dg-btn-primary dg-btn-lg" style={{ marginTop: 26 }}>Open the app</a>
+            <a href={OPEN_APP_HREF} className="dg-btn dg-btn-primary dg-btn-lg" style={{ marginTop: 26 }}>Open the app</a>
           </>
         )}
         {state === "error" && (

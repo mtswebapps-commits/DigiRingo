@@ -35,7 +35,7 @@ export const FEATURES = [
   {
     icon: "Hash",
     title: "Real local numbers",
-    body: "Get genuine local phone numbers in 8+ countries. They look and ring exactly like a native line — because they are one.",
+    body: "Get genuine local phone numbers in 100+ countries. They look and ring exactly like a native line — because they are one.",
   },
   {
     icon: "MessageSquare",

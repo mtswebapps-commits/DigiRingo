@@ -6,7 +6,6 @@ import { UpdatePrompt } from "./components/UpdatePrompt";
 import { PhoneGate } from "./MobileShell";
 import { DashboardShell } from "./DashboardShell";
 import { DesktopAuthScreen } from "./screens/DesktopAuthScreen";
-import { VerifyGateScreen } from "./screens/VerifyGateScreen";
 import { isNative } from "./native";
 
 /**
@@ -26,13 +25,13 @@ function isMobileDevice(): boolean {
 
 /**
  * Responsive root. Signed-in users on a wide screen get the full DASHBOARD
- * (sidebar + all areas + a live mobile preview). Everyone else — small screens,
- * and the login / email-verification flow — gets the phone experience. Both are
+ * (sidebar + all areas + a live mobile preview). Everyone else — small screens
+ * and the login flow — gets the phone experience. Both are
  * driven by the same store, so state stays perfectly in sync.
  */
 function Root() {
   const { state } = useApp();
-  const authed = !!state.user && state.user.emailVerified !== false;
+  const authed = !!state.user;
 
   // Desktops/laptops ALWAYS get the dashboard once signed in — never the phone
   // UI, no matter how small the window is. Phones/tablets and the native app
@@ -55,21 +54,9 @@ function Root() {
     );
   }
 
-  // Desktop / laptop web, NOT signed in → the two-panel web sign-in. (A just-signed-up
-  // user awaiting email verification gets the verify screen in a centered card.)
+  // Desktop / laptop web, NOT signed in → the two-panel web sign-in.
   // Real phones & tablets fall through to the single-column phone experience.
-  if (!isMobileDevice()) {
-    if (state.user) {
-      return (
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.shell, padding: 24, fontFamily: "'Inter', sans-serif" }}>
-          <div style={{ width: "100%", maxWidth: 460, background: C.bg, borderRadius: 24, overflow: "hidden", boxShadow: "0 40px 120px rgba(20,16,40,0.35)" }}>
-            <VerifyGateScreen />
-          </div>
-        </div>
-      );
-    }
-    return <DesktopAuthScreen />;
-  }
+  if (!isMobileDevice()) return <DesktopAuthScreen />;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.shell, padding: "20px 0", fontFamily: "'Inter', sans-serif" }}>
