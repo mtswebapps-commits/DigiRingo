@@ -28,6 +28,7 @@ LIMITS = {"title": 30, "shortDescription": 80, "fullDescription": 4000}
 
 
 def rename(full: str) -> str:
+    full = full.replace("WHY DIGIRINGO", "WHY DIGI RINGO")  # an all-caps heading stays all caps
     for old in ("DIGIRINGO", "DigiRingo", "Digiringo"):
         if old in full:
             full = full.replace(old, "Digi Ringo (DigiRingo)", 1)
